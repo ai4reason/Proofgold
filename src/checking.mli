@@ -61,3 +61,11 @@ val hf_trm_str : trm -> string list -> string
 val ahf_trm_str : trm -> string list -> string
 val aim_trm_str : trm -> string list -> string
 val comb_trm_str : trm -> string list -> string
+
+val ahf_fof_prob : out_channel -> trm -> unit
+val aim1_fof_prob : out_channel -> trm -> unit
+val aim2_fof_prob : out_channel -> trm -> unit
+val comb_fof_prob : out_channel -> trm -> unit
+val qbf_fof_prob : out_channel -> trm -> unit
+
+val hf_thf_prob : out_channel -> trm -> unit

@@ -178,60 +178,60 @@ let compute_staking_chances (prevblkh,lbk,ltx) fromtm totm =
 	try
 	  while !i < totm do
 	    i := Int64.add 1L !i;
-            (*** go through ltc utxos to look for pure burn chances ***)
-            List.iter
-              (fun lutxo ->
-                try
-                  match lutxo with
-                  | LtcP2shSegwit(txid,vout,ltcaddr,_,_,amt) ->
-                     let txidh = hexstring_hashval txid in
-                     let h = hashtag txidh (Int32.of_int vout) in
-                     let hv = hitval !i h csm1 in
-		     let minv = div_big_int hv tar1 in
-		     let toburn = succ_big_int (div_big_int minv (big_int_of_int 1000000)) in
-                     if lt_big_int toburn (big_int_of_int64 100000000000L) then
-                       let toburn64 = int64_of_big_int toburn in
-		       if 0L < toburn64 && Int64.add toburn64 !Config.ltctxfee <= amt then
-                         begin
-                           (if le_big_int toburn mbnb then nextpureburn !i lutxo txidh vout toburn64);
-		           match !minburntostake with
-		           | None ->
-			      Hashtbl.add nextstakechances_hypo (lbk,ltx) (NextPureBurn(!i,lutxo,txidh,vout,toburn64,ref None,thyroot,thytree,sigroot,sigtree));
-			      minburntostake := Some(toburn,!i,None,Some(txidh,vout))
-		           | Some(mburn,_,_,_) ->
-			      if lt_big_int toburn mburn then
-			        begin
-			          Hashtbl.add nextstakechances_hypo (lbk,ltx) (NextPureBurn(!i,lutxo,txidh,vout,toburn64,ref None,thyroot,thytree,sigroot,sigtree));
-                                  minburntostake := Some(toburn,!i,None,Some(txidh,vout))
-                                end
-                         end
-                  | LtcBech32(txid,vout,ltcaddr,_,amt) ->
-                     let txidh = hexstring_hashval txid in
-                     let h = hashtag txidh (Int32.of_int vout) in
-                     let hv = hitval !i h csm1 in
-		     let minv = div_big_int hv tar1 in
-		     let toburn = succ_big_int (div_big_int minv (big_int_of_int 1000000)) in
-		     (* log_string (Printf.sprintf "Checking for pure burn of %s %Ld at time %Ld -- hv %s toburn %s tar1 %s\n" txid amt !i (string_of_big_int hv) (string_of_big_int toburn) (string_of_big_int tar1)); *)
-                     if lt_big_int toburn (big_int_of_int64 100000000000L) then
-                       let toburn64 = int64_of_big_int toburn in
-		       if 0L < toburn64 && Int64.add toburn64 !Config.ltctxfee <= amt then
-                         begin
-                           (if le_big_int toburn mbnb then nextpureburn !i lutxo txidh vout toburn64);
-		           match !minburntostake with
-		           | None ->
-			      Hashtbl.add nextstakechances_hypo (lbk,ltx) (NextPureBurn(!i,lutxo,txidh,vout,toburn64,ref None,thyroot,thytree,sigroot,sigtree));
-			      minburntostake := Some(toburn,!i,None,Some(txidh,vout))
-		           | Some(mburn,_,_,_) ->
-			      if lt_big_int toburn mburn then
-			        begin
-			          Hashtbl.add nextstakechances_hypo (lbk,ltx) (NextPureBurn(!i,lutxo,txidh,vout,toburn64,ref None,thyroot,thytree,sigroot,sigtree));
-                                  minburntostake := Some(toburn,!i,None,Some(txidh,vout))
-                                end
-                         end
-                with
-                | Exit -> raise Exit
-                | _ -> ())
-              lul;
+            if prevblkhght < 5000L then (*** go through ltc utxos to look for pure burn chances ***)
+              List.iter
+                (fun lutxo ->
+                  try
+                    match lutxo with
+                    | LtcP2shSegwit(txid,vout,ltcaddr,_,_,amt) ->
+                       let txidh = hexstring_hashval txid in
+                       let h = hashtag txidh (Int32.of_int vout) in
+                       let hv = hitval !i h csm1 in
+		       let minv = div_big_int hv tar1 in
+		       let toburn = succ_big_int (div_big_int minv (big_int_of_int 1000000)) in
+                       if lt_big_int toburn (big_int_of_int64 100000000000L) then
+                         let toburn64 = int64_of_big_int toburn in
+		         if 0L < toburn64 && Int64.add toburn64 !Config.ltctxfee <= amt then
+                           begin
+                             (if le_big_int toburn mbnb then nextpureburn !i lutxo txidh vout toburn64);
+		             match !minburntostake with
+		             | None ->
+			        Hashtbl.add nextstakechances_hypo (lbk,ltx) (NextPureBurn(!i,lutxo,txidh,vout,toburn64,ref None,thyroot,thytree,sigroot,sigtree));
+			        minburntostake := Some(toburn,!i,None,Some(txidh,vout))
+		             | Some(mburn,_,_,_) ->
+			        if lt_big_int toburn mburn then
+			          begin
+			            Hashtbl.add nextstakechances_hypo (lbk,ltx) (NextPureBurn(!i,lutxo,txidh,vout,toburn64,ref None,thyroot,thytree,sigroot,sigtree));
+                                    minburntostake := Some(toburn,!i,None,Some(txidh,vout))
+                                  end
+                           end
+                    | LtcBech32(txid,vout,ltcaddr,_,amt) ->
+                       let txidh = hexstring_hashval txid in
+                       let h = hashtag txidh (Int32.of_int vout) in
+                       let hv = hitval !i h csm1 in
+		       let minv = div_big_int hv tar1 in
+		       let toburn = succ_big_int (div_big_int minv (big_int_of_int 1000000)) in
+		       (* log_string (Printf.sprintf "Checking for pure burn of %s %Ld at time %Ld -- hv %s toburn %s tar1 %s\n" txid amt !i (string_of_big_int hv) (string_of_big_int toburn) (string_of_big_int tar1)); *)
+                       if lt_big_int toburn (big_int_of_int64 100000000000L) then
+                         let toburn64 = int64_of_big_int toburn in
+		         if 0L < toburn64 && Int64.add toburn64 !Config.ltctxfee <= amt then
+                           begin
+                             (if le_big_int toburn mbnb then nextpureburn !i lutxo txidh vout toburn64);
+		             match !minburntostake with
+		             | None ->
+			        Hashtbl.add nextstakechances_hypo (lbk,ltx) (NextPureBurn(!i,lutxo,txidh,vout,toburn64,ref None,thyroot,thytree,sigroot,sigtree));
+			        minburntostake := Some(toburn,!i,None,Some(txidh,vout))
+		             | Some(mburn,_,_,_) ->
+			        if lt_big_int toburn mburn then
+			          begin
+			            Hashtbl.add nextstakechances_hypo (lbk,ltx) (NextPureBurn(!i,lutxo,txidh,vout,toburn64,ref None,thyroot,thytree,sigroot,sigtree));
+                                    minburntostake := Some(toburn,!i,None,Some(txidh,vout))
+                                  end
+                           end
+                  with
+                  | Exit -> raise Exit
+                  | _ -> ())
+                lul;
 	    (*** go through assets and check for staking at time !i ***)
 	    List.iter
 	      (fun (stkaddr,h,bday,obl,v) ->

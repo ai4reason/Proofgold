@@ -882,7 +882,7 @@ TpArr(Base(0),Prop);
 TpArr(Base(0),TpArr(Base(0),Prop));
 TpArr(Base(0),TpArr(Base(0),TpArr(Base(0),Prop)))]
 
-let hfaxs = [All(TpArr(Base(0),Prop),All(Base(0),Imp(Ap(DB(1),DB(0)),Ap(DB(1),Ap(Prim(0),DB(1))))));
+let hfaxsprenorm = [All(TpArr(Base(0),Prop),All(Base(0),Imp(Ap(DB(1),DB(0)),Ap(DB(1),Ap(Prim(0),DB(1))))));
 All(Prop,Imp(Ap(Prim(3),Ap(Prim(3),DB(0))),DB(0)));
 All(Prop,All(Prop,Imp(Ap(Ap(Prim(6),DB(1)),DB(0)),Eq(Prop,DB(1),DB(0)))));
 All(Base(0),All(Base(0),Imp(Ap(Ap(Prim(8),DB(1)),DB(0)),Imp(Ap(Ap(Prim(8),DB(0)),DB(1)),Eq(Base(0),DB(1),DB(0))))));
@@ -991,7 +991,7 @@ Eq(TpArr(Base(0),Prop),Prim(101),Lam(Base(0),All(TpArr(Base(0),Prop),Imp(Ap(DB(0
 Eq(TpArr(Base(0),TpArr(Base(0),Prop)),Prim(102),Lam(Base(0),Lam(Base(0),All(TpArr(Base(0),TpArr(Base(0),Prop)),Ap(Ap(Ap(Lam(Base(0),Lam(Base(0),Lam(TpArr(Base(0),TpArr(Base(0),Base(0))),Imp(Ap(Prim(30),DB(3)),Imp(All(Base(0),Imp(Ap(Prim(101),DB(0)),Ap(Ap(DB(4),DB(0)),DB(0)))),Imp(All(Base(0),All(Base(0),All(Base(0),All(Base(0),Imp(Ap(Prim(101),DB(3)),Imp(Ap(Prim(101),DB(2)),Imp(Ap(Prim(101),DB(1)),Imp(Ap(Prim(101),DB(0)),Imp(Ap(Ap(DB(7),DB(3)),DB(1)),Imp(Ap(Ap(DB(7),DB(2)),DB(0)),Ap(Ap(DB(7),Ap(Ap(DB(4),DB(3)),DB(2))),Ap(Ap(DB(4),DB(1)),DB(0))))))))))))),Imp(All(Base(0),All(Base(0),Ap(Ap(DB(5),Ap(Ap(DB(2),Ap(Ap(DB(2),DB(4)),DB(1))),DB(0))),DB(1)))),Imp(All(Base(0),All(Base(0),All(Base(0),Ap(Ap(DB(6),Ap(Ap(DB(3),Ap(Ap(DB(3),Ap(Ap(DB(3),DB(4)),DB(2))),DB(1))),DB(0))),Ap(Ap(DB(3),Ap(Ap(DB(3),DB(2)),DB(0))),Ap(Ap(DB(3),DB(1)),DB(0))))))),Ap(Ap(DB(3),DB(5)),DB(4)))))))))),Ap(Prim(65),Prim(9))),Ap(Prim(65),Ap(Prim(11),Prim(9)))),Lam(Base(0),Lam(Base(0),Ap(Prim(64),Ap(Ap(Prim(68),DB(1)),DB(0))))))))));
 Eq(TpArr(Base(0),TpArr(Base(0),TpArr(Base(0),Prop))),Prim(103),Lam(Base(0),Lam(Base(0),Lam(Base(0),Ex(Base(0),Ex(Base(0),Ap(Ap(Prim(5),Ap(Ap(Prim(4),Ap(Ap(Prim(54),Ap(Ap(Prim(68),DB(4)),DB(1))),DB(3))),Ap(Ap(Prim(54),Ap(Ap(Prim(73),DB(0)),DB(1))),DB(2)))),Ap(Ap(Prim(4),Ap(Ap(Prim(54),Ap(Ap(Prim(68),DB(3)),DB(1))),DB(4))),Ap(Ap(Prim(54),Ap(Ap(Prim(73),DB(0)),DB(1))),DB(2))))))))))]
 
-let hfaxs = List.map (fun p -> let (p,b) = beta_eta_norm p 32 in if not b then raise (Failure "impossible") else (tm_hashroot p,p)) hfaxs
+let hfaxs = List.map (fun p -> let (p,b) = beta_eta_norm p 32 in if not b then raise (Failure "impossible") else (tm_hashroot p,p)) hfaxsprenorm
 
 let hfthyspec : theoryspec = List.rev (List.map (fun a -> Thyprim(a)) hfprimtps) @ (List.map (fun (_,p) -> Thyaxiom(p)) hfaxs)
 let hfthy : theory = theoryspec_theory hfthyspec
@@ -3697,3 +3697,220 @@ let reward_bounty_prop h =
     | Some(q) -> (cls,p,q)
     | None -> raise HFPropFailure
   with _ -> (cls,p,p) (** this shouldn't happen, but if it does, the bounty is likely burned since p is not normal **)
+
+let rec ahf_trm_fof_str m vl =
+  match m with
+  | Ap(Prim(3),m1) -> Printf.sprintf "(~ %s)" (ahf_trm_fof_str m1 vl)
+  | Ap(Ap(Prim(4),m1),m2) -> Printf.sprintf "(%s & %s)" (ahf_trm_fof_str m1 vl) (ahf_trm_fof_str m2 vl)
+  | Ap(Ap(Prim(5),m1),m2) -> Printf.sprintf "(%s | %s)" (ahf_trm_fof_str m1 vl) (ahf_trm_fof_str m2 vl)
+  | Ap(Ap(Prim(6),m1),m2) -> Printf.sprintf "(%s <=> %s)" (ahf_trm_fof_str m1 vl) (ahf_trm_fof_str m2 vl)
+  | Prim(i) -> Printf.sprintf "c%s" hfprimnamesa.(i)
+  | DB(i) -> (try List.nth vl i with _ -> Printf.sprintf "?%d" (i - List.length vl))
+  | Ap(m1,m2) -> Printf.sprintf "%s" (ahf_head_spine_fof_str m1 [m2] vl)
+  | Lam(_,m1) -> raise Not_found
+  | Imp(m1,m2) -> Printf.sprintf "(%s => %s)" (ahf_trm_fof_str m1 vl) (ahf_trm_fof_str m2 vl)
+  | All(a1,m1) ->
+     let x = Printf.sprintf "X%d" (List.length vl) in
+     if a1 = Base(0) then
+       Printf.sprintf "(! [%s] : %s)" x (ahf_trm_fof_str m1 (x::vl))
+     else
+       raise Not_found
+  | Ex(a1,m1) ->
+     let x = Printf.sprintf "X%d" (List.length vl) in
+     if a1 = Base(0) then
+       Printf.sprintf "(? [%s] : %s)" x (ahf_trm_fof_str m1 (x::vl))
+     else
+       raise Not_found
+  | Eq(_,m1,m2) ->
+     Printf.sprintf "(%s = %s)" (ahf_trm_fof_str m1 vl) (ahf_trm_fof_str m2 vl)
+  | _ -> raise Not_found
+and ahf_head_spine_fof_str m sp vl =
+  match m with
+  | Ap(m1,m2) -> ahf_head_spine_fof_str m1 (m2::sp) vl
+  | Prim(i) -> Printf.sprintf "c%s%s" hfprimnamesa.(i) (ahf_spine_fof_str "(" sp vl)
+  | DB(i) -> Printf.sprintf "%s%s" (try List.nth vl i with _ -> Printf.sprintf "?%d" (i - List.length vl)) (ahf_spine_fof_str "(" sp vl)
+  | _ -> raise Not_found
+and ahf_spine_fof_str c sp vl =
+  match sp with
+  | [] -> ")"
+  | m::spr -> Printf.sprintf "%s%s%s" c (ahf_trm_fof_str m vl) (ahf_spine_fof_str "," spr vl)
+
+let rec ahf_fof_prob_r f m axc vl =
+  match m with
+  | All(a1,m1) ->
+     begin
+       try
+         let x =
+           List.nth ["ain";"asubq";"adisjoint";"a0";"a1";"a2";"a3";"a4";"apow";"asing";"aun";"aint";"asm";"aal2";"aal3";"aal4";"aal5";"aal6";"aal7";"aex2";"aex3";"aex4";"aex5";"aex6"] (List.length vl)
+         in
+         ahf_fof_prob_r f m1 axc (x::vl)
+       with _ ->
+             Printf.fprintf f "fof(conj,conjecture,%s).\n" (ahf_trm_fof_str m vl)
+     end
+  | Imp(m1,m2) ->
+     begin
+       Printf.fprintf f "fof(ax%d,axiom,%s).\n" axc (ahf_trm_fof_str m1 vl);
+       ahf_fof_prob_r f m2 (axc+1) vl
+     end
+  | _ -> Printf.fprintf f "fof(conj,conjecture,%s).\n" (ahf_trm_fof_str m vl)
+             
+let ahf_fof_prob c m =
+  ahf_fof_prob_r c m 1 []
+
+let rec aim_fof_trm m vl =
+  match m with
+  | DB(i) -> List.nth vl i
+  | Ap(Ap(DB(i),m1),m2) -> Printf.sprintf "%s(%s,%s)" (List.nth vl i) (aim_fof_trm m1 vl) (aim_fof_trm m2 vl)
+  | Ap(Ap(Ap(DB(i),m1),m2),m3) -> Printf.sprintf "%s(%s,%s,%s)" (List.nth vl i) (aim_fof_trm m1 vl) (aim_fof_trm m2 vl) (aim_fof_trm m3 vl)
+  | _ -> raise Not_found
+
+let rec aim_fof_prop p vl =
+  match p with
+  | All(_,Imp(Ap(Ap(Prim(7),DB(0)),_),q)) ->
+     let x = Printf.sprintf "X%d" (List.length vl) in
+     Printf.sprintf "(! [%s] : %s)" x (aim_fof_prop q (x::vl))
+  | Eq(_,m1,m2) ->
+     Printf.sprintf "(%s = %s)" (aim_fof_trm m1 vl) (aim_fof_trm m2 vl)
+  | _ -> raise Not_found
+
+let rec aim_body p =
+  match p with
+  | All(_,q) -> aim_body q
+  | Imp(_,q) -> q
+  | _ -> raise Not_found
+
+let aim_fof_header f =
+  Printf.fprintf f "fof(id1,axiom,(! [X] : (m(X,e) = X))).\n";
+  Printf.fprintf f "fof(id2,axiom,(! [X] : (m(e,X) = X))).\n";
+  Printf.fprintf f "fof(b1,axiom,(! [X,Y] : (m(X,b(X,Y)) = Y))).\n";
+  Printf.fprintf f "fof(b2,axiom,(! [X,Y] : (b(X,m(X,Y)) = Y))).\n";
+  Printf.fprintf f "fof(s1,axiom,(! [X,Y] : (m(s(X,Y),Y) = X))).\n";
+  Printf.fprintf f "fof(s2,axiom,(! [X,Y] : (s(m(X,Y),Y) = X))).\n";
+  Printf.fprintf f "fof(tdef,axiom,(! [X,U] : (t(X,U) = b(X,m(U,X))))).\n";
+  Printf.fprintf f "fof(i1def,axiom,(! [X,U] : (i1(X,U) = m(X,m(U,b(X,e)))))).\n";
+  Printf.fprintf f "fof(j1def,axiom,(! [X,U] : (j1(X,U) = m(m(s(e,X),U),X)))).\n";
+  Printf.fprintf f "fof(i2def,axiom,(! [X,U] : (i2(X,U) = m(b(X,U),b(b(X,e),e))))).\n";
+  Printf.fprintf f "fof(j2def,axiom,(! [X,U] : (j2(X,U) = m(s(e,s(e,X)),s(U,X))))).\n";
+  Printf.fprintf f "fof(ldef,axiom,(! [X,Y,U] : (l(X,Y,U) = b(m(Y,X),m(Y,m(X,U)))))).\n";
+  Printf.fprintf f "fof(rdef,axiom,(! [X,Y,U] : (r(X,Y,U) = s(m(m(U,X),Y),m(X,Y))))).\n"
+
+let aim_fof_prob c i p =
+  let q = aim_body p in
+  let axc = ref 0 in
+  let aimfofctx = List.rev ["x";"m";"b";"s";"e";"k";"a";"t";"l";"r";"i1";"j1";"i2";"j2"] in
+  let rec aim_fof_prob_r q =
+    match q with
+    | Imp(p,q) ->
+       incr axc;
+       Printf.fprintf c "fof(ax%d,axiom,%s).\n" !axc (aim_fof_prop p aimfofctx);
+       aim_fof_prob_r q
+    | _ ->
+       if i = 1 then
+         Printf.fprintf c "fof(conj,conjecture,(! [U,X,Y,W] : ((k(m(b(l(X,Y,U),e),U),W) = e)))).\n"
+       else
+         Printf.fprintf c "fof(conj,conjecture,(! [U,X,Y,Z,W] : ((a(W,m(s(e,U),r(X,Y,U)),Z) = e)))).\n"
+  in
+  aim_fof_header c;
+  aim_fof_prob_r q
+
+let aim1_fof_prob c p = aim_fof_prob c 1 p
+let aim2_fof_prob c p = aim_fof_prob c 2 p
+
+let rec comb_trm_fof_str m vl =
+  match m with
+  | DB(i) -> (try List.nth vl i with _ -> raise (Failure "unbound de Bruijn"))
+  | Ap(Prim(inj0),Prim(empty)) when inj0 = 65 && empty = 9 -> "k"
+  | Ap(Prim(inj0),Ap(Prim(power),Prim(empty))) when inj0 = 65 && empty = 9 && power = 11 -> "s"
+  | Ap(Prim(inj1),Ap(Ap(Prim(setsum),m1),m2)) when inj1 = 64 && setsum = 68 ->
+     Printf.sprintf "a(%s,%s)" (comb_trm_fof_str m1 vl) (comb_trm_fof_str m2 vl)
+  | Ap(Ap(Prim(combeq),m1),m2) when combeq = 102 ->
+     Printf.sprintf "(%s = %s)" (comb_trm_fof_str m1 vl) (comb_trm_fof_str m2 vl)
+  | Imp(m1,m2) -> Printf.sprintf "(%s => %s)" (comb_trm_fof_str m1 vl) (comb_trm_fof_str m2 vl)
+  | All(_,Imp(Ap(Prim(comb),DB(0)),m1)) when comb = 101 ->
+     let x = Printf.sprintf "X%d" (List.length vl) in
+     Printf.sprintf "(! [%s] : %s)" x (comb_trm_fof_str m1 (x::vl))
+  | Prim(1) -> "$false"
+  | Prim(2) -> "$true"
+  | Ap(Prim(3),m1) -> Printf.sprintf "(~ %s)" (comb_trm_fof_str m1 vl)
+  | Ap(Ap(Prim(4),m1),m2) -> Printf.sprintf "(%s & %s)" (comb_trm_fof_str m1 vl) (comb_trm_fof_str m2 vl)
+  | Ap(Ap(Prim(5),m1),m2) -> Printf.sprintf "(%s | %s)" (comb_trm_fof_str m1 vl) (comb_trm_fof_str m2 vl)
+  | Ap(Ap(Prim(6),m1),m2) -> Printf.sprintf "(%s <=> %s)" (comb_trm_fof_str m1 vl) (comb_trm_fof_str m2 vl)
+  | _ -> raise (Failure "unexpected combinatory logic unification case")
+
+let comb_fof_header c =
+  Printf.fprintf c "fof(keq,axiom,(! [X,Y] : (a(a(k,X),Y) = X))).\n";
+  Printf.fprintf c "fof(seq,axiom,(! [X,Y] : (a(a(a(s,X),Y),Z) = a(a(X,Z),a(Y,Z))))).\n"
+
+let comb_fof_prob c p =
+  comb_fof_header c;
+  Printf.fprintf c "fof(conj,conjecture,%s).\n" (comb_trm_fof_str p [])
+
+let rec qbf_trm_fof_str m vl =
+  match m with
+  | DB(i) -> (try Printf.sprintf "p(%s)" (List.nth vl i) with _ -> raise (Failure "unbound de Bruijn"))
+  | Imp(m1,m2) -> Printf.sprintf "(%s => %s)" (qbf_trm_fof_str m1 vl) (qbf_trm_fof_str m2 vl)
+  | All(_,m1) ->
+     let x = Printf.sprintf "X%d" (List.length vl) in
+     Printf.sprintf "(! [%s] : %s)" x (qbf_trm_fof_str m1 (x::vl))
+  | Ex(_,m1) ->
+     let x = Printf.sprintf "X%d" (List.length vl) in
+     Printf.sprintf "(? [%s] : %s)" x (qbf_trm_fof_str m1 (x::vl))
+  | Prim(1) -> "$false"
+  | Prim(2) -> "$true"
+  | Ap(Prim(3),m1) -> Printf.sprintf "(~ %s)" (qbf_trm_fof_str m1 vl)
+  | Ap(Ap(Prim(4),m1),m2) -> Printf.sprintf "(%s & %s)" (qbf_trm_fof_str m1 vl) (qbf_trm_fof_str m2 vl)
+  | Ap(Ap(Prim(5),m1),m2) -> Printf.sprintf "(%s | %s)" (qbf_trm_fof_str m1 vl) (qbf_trm_fof_str m2 vl)
+  | Ap(Ap(Prim(6),m1),m2) -> Printf.sprintf "(%s <=> %s)" (qbf_trm_fof_str m1 vl) (qbf_trm_fof_str m2 vl)
+  | _ -> raise (Failure "unexpected qbf case")
+
+let qbf_fof_header c =
+  Printf.fprintf c "fof(boolax,axiom,(! [X] : ((X = t) | (X = f)))).\n";
+  Printf.fprintf c "fof(pt,axiom,p(t)).\n";
+  Printf.fprintf c "fof(npf,axiom,(~ p(f))).\n"
+
+let qbf_fof_prob c p =
+  qbf_fof_header c;
+  Printf.fprintf c "fof(conj,conjecture,%s).\n" (qbf_trm_fof_str p [])
+                 
+let rec hf_stp_thf_str a =
+  match a with
+  | TpArr(a1,a2) -> Printf.sprintf "(%s > %s)" (hf_stp_thf_str a1) (hf_stp_thf_str a2)
+  | Prop -> "$o"
+  | Base(_) -> "$i"
+
+let rec hf_trm_thf_str m vl =
+  match m with
+  | TmH(_) -> raise (Failure "TmH should not occur in reward bounty formulas") (** might generalize this to work for nonreward bounty formulas later **)
+  | DB(i) -> (try List.nth vl i with _ -> raise (Failure "unbound de Bruijn"))
+  | Prim(i) -> Printf.sprintf "c_%s" hfprimnamesa.(i)
+  | Ap(m1,m2) -> Printf.sprintf "(%s @ %s)" (hf_trm_thf_str m1 vl) (hf_trm_thf_str m2 vl)
+  | Lam(a1,m1) ->
+     let x = Printf.sprintf "X%d" (List.length vl) in
+     Printf.sprintf "(^ [%s:%s] : %s)" x (hf_stp_thf_str a1) (hf_trm_thf_str m1 (x::vl))
+  | Imp(m1,m2) -> Printf.sprintf "(%s => %s)" (hf_trm_thf_str m1 vl) (hf_trm_thf_str m2 vl)
+  | All(a1,m1) ->
+     let x = Printf.sprintf "X%d" (List.length vl) in
+     Printf.sprintf "(! [%s:%s] : %s)" x (hf_stp_thf_str a1) (hf_trm_thf_str m1 (x::vl))
+  | Ex(a1,m1) ->
+     let x = Printf.sprintf "X%d" (List.length vl) in
+     Printf.sprintf "(? [%s:%s] : %s)" x (hf_stp_thf_str a1) (hf_trm_thf_str m1 (x::vl))
+  | Eq(_,m1,m2) -> Printf.sprintf "(%s = %s)" (hf_trm_thf_str m1 vl) (hf_trm_thf_str m2 vl)
+                                                               
+let hohf_thf_header c =
+  let ccnt = ref (-1) in
+  let axcnt = ref 0 in
+  List.iter
+    (fun a ->
+      incr ccnt;
+      let nm = hfprimnamesa.(!ccnt) in
+      Printf.fprintf c "thf(c_%s_tp,type,(c_%s : %s)).\n" nm nm (hf_stp_thf_str a))
+    hfprimtps;
+  List.iter
+    (fun p ->
+      incr axcnt;
+      Printf.fprintf c "thf(ax%d,axiom,%s).\n" !axcnt (hf_trm_thf_str p []))
+    hfaxsprenorm
+
+let hf_thf_prob c p =
+  hohf_thf_header c;
+  Printf.fprintf c "thf(conj,conjecture,%s).\n" (hf_trm_thf_str p [])

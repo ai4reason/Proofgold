@@ -396,7 +396,9 @@ let valid_blockheader blkh csm tinfo (bhd,bhs) lmedtm burned txid1 vout1 =
     | None ->
        valid_blockheader_a blkh csm tinfo (bhd,bhs) (blockheader_stakeasset bhd) lmedtm burned
     | Some(txidh,vout) ->
-       if (txidh = txid1) && (vout = vout1) then
+       if blkh > 5000L then (** pure burns only allowed in the first 5000 blocks, roughly half a year **)
+         false
+       else if (txidh = txid1) && (vout = vout1) then
          let aid = hashtag txidh vout in
          if aid = bhd.stakeassetid then
            let a = (aid,0L,None,Currency(0L)) in (** temporary asset pretending to be staked **)
@@ -824,7 +826,9 @@ let valid_block tht sigt blkh csm tinfo (b:block) lmedtm burned txid1 vout1 =
        valid_block_a tht sigt blkh csm tinfo b (blockheader_stakeasset bhd) stkaddr lmedtm burned
     | Some(txidh,vout) ->
        vbc (fun c -> Printf.fprintf c "pureburn %s %ld\ncomparing to %s %ld\n" (hashval_hexstring txidh) vout (hashval_hexstring txid1) vout1);
-       if (txidh = txid1) && (vout = vout1) then
+       if blkh > 5000L then (** pure burns only allowed in the first 5000 blocks, roughly half a year **)
+         None
+       else if (txidh = txid1) && (vout = vout1) then
          let aid = hashtag txidh vout in
          if aid = bhd.stakeassetid then
            let a = (aid,0L,None,Currency(0L)) in (** temporary asset pretending to be staked **)
@@ -849,15 +853,18 @@ let valid_block_ifburn tht sigt blkh csm tinfo (b:block) lmedtm burned =
     | None ->
        valid_block_a tht sigt blkh csm tinfo b (blockheader_stakeasset bhd) stkaddr lmedtm burned
     | Some(txidh,vout) ->
-       let aid = hashtag txidh vout in
-       if aid = bhd.stakeassetid then
-         let a = (aid,0L,None,Currency(0L)) in (** temporary asset pretending to be staked **)
-         if blockheader_stakeasset bhd = a then
-           valid_block_a tht sigt blkh csm tinfo b a stkaddr lmedtm burned
+       if blkh > 5000L then (** pure burns only allowed in the first 5000 blocks, roughly half a year **)
+         None
+       else
+         let aid = hashtag txidh vout in
+         if aid = bhd.stakeassetid then
+           let a = (aid,0L,None,Currency(0L)) in (** temporary asset pretending to be staked **)
+           if blockheader_stakeasset bhd = a then
+             valid_block_a tht sigt blkh csm tinfo b a stkaddr lmedtm burned
+           else
+             raise HeaderNoStakedAsset
          else
            raise HeaderNoStakedAsset
-       else
-         raise HeaderNoStakedAsset
   with
   | HeaderStakedAssetNotMin -> None
   | HeaderNoStakedAsset -> None
