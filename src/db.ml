@@ -82,7 +82,12 @@ let dbconfig dir =
       if not (!Config.independentbootstrap) then bootstrapdb dir
     end
 
+let use_backup_index d =
+  if Sys.file_exists (Filename.concat d "index2") then (** this indicates that something probably went wrong writing into data in this subdir; replace the probably broken index with the backup index2 **)
+    Sys.rename (Filename.concat d "index2") (Filename.concat d "index")
+  
 let load_index d =
+  use_backup_index d;
   let dind = Filename.concat d "index" in
   if Sys.file_exists dind then
     let ch = open_in_bin dind in
@@ -109,6 +114,7 @@ let load_index d =
     []
 
 let load_index_to_hashtable ht d =
+  use_backup_index d;
   let dind = Filename.concat d "index" in
   if Sys.file_exists dind then
     let ch = open_in_bin dind in
@@ -168,6 +174,7 @@ let rec db_iter_subdirs d f =
     end
   
 let find_in_index d k =
+  use_backup_index d;
   let dind = Filename.concat d "index" in
   if Sys.file_exists dind then
     let ch = open_in_bin dind in
@@ -343,9 +350,8 @@ let file_length f =
     0
 
 let rec dbfind_next_space_a d i k =
-  if Sys.file_exists (Filename.concat d "index2") then (** this indicates that something probably went wrong writing into data in this subdir, so skip to one below **)
-    dbfind_next_space_b d i k
-  else if count_index d < max_entries_in_dir then
+  use_backup_index d;
+  if count_index d < max_entries_in_dir then
     let dd = Filename.concat d "data" in
     let p = file_length dd in
     if p < stop_after_byte then

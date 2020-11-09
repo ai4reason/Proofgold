@@ -225,8 +225,13 @@ let myaddr () =
 	""
       else
 	match !Config.onion with
-	| Some(onionaddr) -> onionaddr ^ ":" ^ (string_of_int !Config.onionremoteport)
 	| None -> ""
+	| Some(onionaddr) ->
+           match !Config.proxyip with
+           | Some (ip) ->
+	      ip ^ ":" ^ (string_of_int !Config.port)
+           | None ->
+              onionaddr ^ ":" ^ (string_of_int !Config.onionremoteport)
 
 let fallbacknodes = [
 (* ":21805" *)

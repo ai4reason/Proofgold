@@ -481,7 +481,7 @@ let valid_block_a tht sigt blkh csm tinfo b ((aid,bday,obl,u) as a) stkaddr lmed
       None
     else
       try
-        let (_,_,p) = Checking.reward_bounty_prop csm in
+        let (_,_,p) = Checking.reward_bounty_prop blkh csm in
         let hfthyid = Checking.hfthyid in
         let ppureid = tm_hashroot p in
         let pthyid = hashtag (hashopair2 (Some(hfthyid)) ppureid) 33l in

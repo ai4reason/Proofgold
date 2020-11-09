@@ -11,6 +11,7 @@ val ltcsubversion : int ref
 val daemon : bool ref
 val testnet : bool ref
 val staking : bool ref
+val proxyip : string option ref
 val ip : string option ref
 val ipv6 : bool ref
 val port : int ref
@@ -40,8 +41,6 @@ val genesistimestamp : int64 ref
 val maxburn : int64 ref
 val maxburnrate : int64 ref
 val ltctxfee : int64 ref
-val mintimebetweenburns : int64 ref
-val burnifleq : int ref
 val randomseed : string option ref
 val minconnstostake : int ref
 val minrelayfee : int64 ref

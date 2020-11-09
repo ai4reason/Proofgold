@@ -44,14 +44,12 @@ let intconfigvars = [
 ("ltcversion",fun x -> Config.ltcversion := x);
 ("ltcsubversion",fun x -> Config.ltcsubversion := x);
 ("maxconns",fun x -> Config.maxconns := x);
-("burnifleq",fun x -> Config.burnifleq := x);
 ("minconnstostake",fun x -> Config.minconnstostake := x)
 ];;
 let int64configvars = [
 ("maxburn",fun x -> Config.maxburn := x);
 ("maxburnrate",fun x -> Config.maxburnrate := x);
 ("ltctxfee",fun x -> Config.ltctxfee := x);
-("mintimebetweenburns",fun x -> Config.mintimebetweenburns := x);
 ("reward_lock_relative",fun x -> Config.reward_lock_relative := Some(x));
 ("reward_lock_absolute",fun x -> Config.reward_lock_absolute := Some(x))
 ];;
@@ -60,6 +58,7 @@ let atomsofbarsconfigvars = [
 ("defaulttxfee",fun x -> Config.defaulttxfee := x)
 ];;
 let stringoptionconfigvars = [
+("proxyip",fun x -> Config.proxyip := x);
 ("ip",fun x -> Config.ip := x);
 ("onion",fun x -> Config.onion := x);
 ("ltcrpconion",fun x -> Config.ltcrpconion := x);

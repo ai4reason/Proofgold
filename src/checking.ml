@@ -695,11 +695,42 @@ let rec hf_stp_str a p =
   | Base(j) when j = 0 -> "i"
   | Base(j) -> Printf.sprintf "_%d" j
 
+let rec bin_hf_rep_inv m =
+  match m with
+  | Prim(9) -> 0L
+  | Ap(Prim(11),m1) ->
+     let n1 = bin_hf_rep_inv m1 in
+     if n1 > 62L || n1 < 0L then raise Not_found;
+     Int64.shift_left 1L (Int64.to_int n1)
+  | Ap(Ap(Prim(71),m1),m2) ->
+     let n1 = bin_hf_rep_inv m1 in
+     let n2 = bin_hf_rep_inv m2 in
+     if n2 > 62L || n2 < 0L then raise Not_found;
+     Int64.add n1 (Int64.shift_left 1L (Int64.to_int n2))
+  | _ -> raise Not_found
+     
+let rec un_hf_rep_inv m =
+  match m with
+  | Prim(9) -> 0
+  | Ap(Prim(57),m1) -> 1+un_hf_rep_inv m1
+  | _ -> raise Not_found
+
 let rec hf_trm_str m vl =
   match m with
   | Prim(i) -> hfprimnamesa.(i)
   | DB(i) -> (try List.nth vl i with _ -> Printf.sprintf "?%d" (i - List.length vl))
-  | Ap(_,_) -> Printf.sprintf "(%s)" (hf_spine_str m vl)
+  | Ap(_,_) ->
+     begin
+       try
+         let n = bin_hf_rep_inv m in
+         Printf.sprintf "\\b%Ld" n
+       with Not_found ->
+         try
+           let n = un_hf_rep_inv m in
+           Printf.sprintf "\\u%d" n
+         with Not_found ->
+           Printf.sprintf "(%s)" (hf_spine_str m vl)
+     end
   | Lam(_,m1) ->
      let x = Printf.sprintf "X%d" (List.length vl) in
      Printf.sprintf "(fun %s => %s)" x (hf_trm_str m1 (x::vl))
@@ -2713,6 +2744,64 @@ and sei_hf_trm l i c a uhf =
   | Base(0) -> sei_hf_set l i c uhf
   | _ -> raise HFPropFailure
 
+let sei_poly3_original_broken_version i c =
+  let setsum = Prim(68) in
+  let setprod = Prim(73) in
+  let setexp = Prim(78) in
+  let p = ref None in
+  let expon v n =
+    if n = 1 then
+      v
+    else
+      Ap(Ap(setexp,v),bin_hf_rep (Int64.of_int n))
+  in
+  let mon b x y z =
+    let coeff = bin_hf_rep (Int64.of_int b) in
+    let coeff_fun xyz =
+      if b > 1 then
+        Ap(Ap(setprod,coeff),xyz)
+      else
+        xyz
+    in
+    if x = 0 then
+      if y = 0 then
+        if z = 0 then
+          coeff (** just constant **)
+        else
+          coeff_fun (expon (DB(0)) z)
+      else if z = 0 then
+        coeff_fun (expon (DB(1)) y)
+      else
+        coeff_fun (Ap(Ap(setprod,expon (DB(1)) y),expon (DB(0)) z))
+    else
+      if y = 0 then
+        if z = 0 then
+          coeff_fun (expon (DB(2)) x)
+        else
+          coeff_fun (Ap(Ap(setprod,expon (DB(2)) x),expon (DB(0)) z))
+      else if z = 0 then
+        coeff_fun (Ap(Ap(setprod,expon (DB(2)) x),expon (DB(1)) y))
+      else
+        coeff_fun (Ap(Ap(setprod,expon (DB(2)) x),Ap(Ap(setprod,expon (DB(1)) y),expon (DB(0)) z)))
+  in
+  let update_p b x y z =
+    if b > 0 then (** no change if monomial has 0 coefficient **)
+      match !p with
+      | None -> p := Some(mon b x y z)
+      | Some(q) -> p := Some(Ap(Ap(setsum,mon b x y z),q))
+  in (** BUG: no bits consumed below; bug; 4 bits used and repeatedly reused **)
+  for x = 0 to 3 do
+    for y = 0 to 3 do
+      for z = 0 to 3 do
+        let (b,c) = i 4 c in
+        update_p b x y z
+      done
+    done
+  done;
+  match !p with
+  | None -> (Prim(9),c) (** empty set, zero polynomial **)
+  | Some(q) -> (q,c)
+
 let sei_poly3 i c =
   let setsum = Prim(68) in
   let setprod = Prim(73) in
@@ -2758,18 +2847,20 @@ let sei_poly3 i c =
       match !p with
       | None -> p := Some(mon b x y z)
       | Some(q) -> p := Some(Ap(Ap(setsum,mon b x y z),q))
-  in (** 128 bits used below **)
+  in (** 256 bits used below **)
+  let cr = ref c in
   for x = 0 to 3 do
     for y = 0 to 3 do
       for z = 0 to 3 do
-        let (b,c) = i 4 c in
+        let (b,c) = i 4 (!cr) in
+        cr := c;
         update_p b x y z
       done
     done
   done;
   match !p with
-  | None -> (Prim(9),c) (** empty set, zero polynomial **)
-  | Some(q) -> (q,c)
+  | None -> (Prim(9),!cr) (** empty set, zero polynomial **)
+  | Some(q) -> (q,!cr)
 
 let sei_abstr_hf_prop i c =
   let (b,c) = i 11 c in
@@ -2787,6 +2878,37 @@ let sei_abstr_hf_prop i c =
     ahfctx;
   !p
     
+let sei_diophantine_original_broken_version i c =
+  let (p1,c) = sei_poly3_original_broken_version i c in
+  let (p2,c) = sei_poly3_original_broken_version i c in
+  let (b,c) = i 1 c in
+  let setsum = Prim(68) in
+  let r = Prim(53 + b) in (** atleastp if b = 0, equip if b = 1 **)
+  let i = Base(0) in
+  let p = All(i,All(i,All(i,Imp(Ap(Ap(r,Ap(Ap(setsum,p1),bin_hf_rep 16L)),p2),Prim(1))))) in (** in the form that says there is no soln **)
+  p
+
+let sei_diophantine_mod_original_broken_version i c =
+  let (p1,c) = sei_poly3_original_broken_version i c in
+  let (p2,c) = sei_poly3_original_broken_version i c in
+  let (b,c) = i 30 c in
+  let (big,c) = i 1 c in
+  let m =
+    if big = 0 then
+      Int64.add 2L (Int64.of_int b)
+    else
+      let (b2,c) = i 30 c in
+      if b = 0 && b2 < 2 then
+        2L
+      else
+        Int64.logor (Int64.shift_left (Int64.of_int b) 30) (Int64.of_int b)
+  in
+  let setsum = Prim(68) in
+  let equipmod = Prim(103) in
+  let i = Base(0) in
+  let p = All(i,All(i,All(i,Imp(Ap(Ap(Ap(equipmod,Ap(Ap(setsum,p1),bin_hf_rep 16L)),p2),bin_hf_rep m),Prim(1))))) in (** in the form that says there is no soln **)
+  p
+
 let sei_diophantine i c =
   let (p1,c) = sei_poly3 i c in
   let (p2,c) = sei_poly3 i c in
@@ -3618,7 +3740,7 @@ let sei_comb_unif_prop i c =
   (allcomb4
      (Imp(allcomb4 fr1,Imp(allcomb4 fr2,Imp(allcomb4 fr3,Imp(allcomb4 fr4,Imp(allcomb4 fr5,Imp(allcomb4 fr6,Imp(allcomb4 fr7,Imp(allcomb4 fr8,Prim(1)))))))))),c)
 
-let reward_bounty_prop_main h =
+let reward_bounty_prop_main blkh h =
   let sb = Buffer.create 2048 in
   for i = 0 to 63 do
     Buffer.add_string sb (hexstring_string (hashval_hexstring (hashtag h (Int32.of_int i))))
@@ -3681,17 +3803,23 @@ let reward_bounty_prop_main h =
     else if x = 4l then (** Abstract HF FO Problems **)
       (7,sei_abstr_hf_prop seis (s,2048,None,0,0))
     else if x = 5l then (** Diophantine modulo **)
-      (8,sei_diophantine_mod seis (s,2048,None,0,0))
+      if blkh < 2215L then
+        (8,sei_diophantine_mod_original_broken_version seis (s,2048,None,0,0))
+      else
+        (8,sei_diophantine_mod seis (s,2048,None,0,0))
     else if x = 6l then (** AIM 1 **)
       (9,sei_aim1 seis (s,2048,None,0,0))
     else (** AIM 2 **)
       (10,sei_aim2 seis (s,2048,None,0,0))
   with
   | _ -> (** fall back on Diophantine in case of failure **)
-      (11,sei_diophantine seis (s,2048,None,0,0))
+     if blkh < 2215L then
+       (11,sei_diophantine_original_broken_version seis (s,2048,None,0,0))
+     else
+       (11,sei_diophantine seis (s,2048,None,0,0))
 
-let reward_bounty_prop h =
-  let (cls,p) = reward_bounty_prop_main h in
+let reward_bounty_prop blkh h =
+  let (cls,p) = reward_bounty_prop_main blkh h in
   try
     match beta_eta_delta_norm p ([],[]) with
     | Some(q) -> (cls,p,q)

@@ -1764,6 +1764,12 @@ let initialize_commands () =
 			    end
 			end)
 		    createsnegpropsaddrs2;
+                  Printf.fprintf oc "Conjecture theory addresses:\n";
+                  Hashtbl.iter
+                    (fun nm pureh ->
+		      let pid = hashtag (hashopair2 th pureh) 33l in
+                      Printf.fprintf oc "%s : %s\n" nm (addr_pfgaddrstr (hashval_term_addr pid)))
+                    conjh;
 		  let countbounties = ref 0 in
 		  let totalbounties = ref 0L in
 		  Hashtbl.iter
@@ -3104,7 +3110,7 @@ let initialize_commands () =
 	      Printf.fprintf oc "No peer has header %s.\n" a
 	  end
       | _ -> raise BadCommandForm);
-  ac "rewardbountyprop" "rewardbountyprop <ltcblockid> <ltcburntxid> [format]" "Convert an ltc block id and ltc tx id (where the tx should be a burn tx confirmed in the block),\ncreate the corresponding proposition where a reward bounty would be placed.\nIf the format argument, then it can have the following values:\nassembly : give the conjecture in the assembly format proofgold can parse\nfof : try to give the conjecture as a first-order problem in the TPTP fof format\nthf : give the conjecture as a higher-order problem in the TPTP thf format\n"
+  ac "originalrewardbountyprop" "originalrewardbountyprop <ltcblockid> <ltcburntxid> [format]" "Convert an ltc block id and ltc tx id (where the tx should be a burn tx confirmed in the block),\ncreate the corresponding proposition where a reward bounty would be placed.\nIf the format argument is given, then it can have the following values:\nassembly : give the conjecture in the assembly format proofgold can parse\nfof : try to give the conjecture as a first-order problem in the TPTP fof format\nthf : give the conjecture as a higher-order problem in the TPTP thf format\nThis alternativeversion of rewardbountyprop uses the original (buggy) algorithm\nbefore the emergency hard fork of August 30 2020.\n"
     (fun oc al ->
       let (lbk,ltx,formatval) =
         match al with
@@ -3119,7 +3125,63 @@ let initialize_commands () =
 	let lbk = hexstring_hashval lbk in
 	let ltx = hexstring_hashval ltx in
         let h = hashpair lbk ltx in
-        let (pc,p,q) = Checking.reward_bounty_prop h in (** q is the normalized version of p, where the bounty really goes, but p is what we show and can put into the document since it will be normalized anyway **)
+        let (pc,p,q) = Checking.reward_bounty_prop 2214L h in (** q is the normalized version of p, where the bounty really goes, but p is what we show and can put into the document since it will be normalized anyway **) (** 2214 is a fake block height just to indicate we want the reward bounty prop before the August 30 2020 emergency hard fork **)
+        let cls = (try (List.nth ["Random1";"Random2";"Random3";"QBF";"HOSetConstr";"HOUnif";"CombUnif";"AbstrHF";"DiophantineMod";"AIM1";"AIM2";"Diophantine"] pc) with _ -> "Unknown") in
+	Printf.fprintf oc "%s\n" cls;
+        if formatval = 0 then
+          Printf.fprintf oc "%s\n" (if pc = 9 || pc = 10 then Checking.aim_trm_str p [] else if pc = 6 then Checking.comb_trm_str p [] else if pc = 7 then Checking.ahf_trm_str p [] else Checking.hf_trm_str p [])
+        else if formatval = 1 then
+          begin
+            let bh : (int,string) Hashtbl.t = Hashtbl.create 1 in
+            let trmh : (hashval,string) Hashtbl.t = Hashtbl.create 1 in
+            let leth : (Logic.trm,string) Hashtbl.t = Hashtbl.create 10 in
+            if not (cls = "QBF") then
+              begin
+                Hashtbl.add bh 0 "set";
+                Printf.fprintf oc "Base set\n"
+              end;
+            decl_let_hfprims oc bh leth p;
+            Printf.fprintf oc "Conj bountyprop : %s\n" (output_trm p bh trmh leth [])
+          end
+        else if formatval = 2 then
+          begin
+            if cls = "AbstrHF" then
+              Checking.ahf_fof_prob oc p
+            else if cls = "AIM1" then
+              Checking.aim1_fof_prob oc p
+            else if cls = "AIM2" then
+              Checking.aim2_fof_prob oc p
+            else if cls = "QBF" then
+              Checking.qbf_fof_prob oc p
+            else if cls = "CombUnif" then
+              Checking.comb_fof_prob oc p
+            else
+              Printf.fprintf oc "Currently no implementation giving a TPTP fof problem for problems of class %s.\n" cls
+          end
+        else if formatval = 3 then
+          Checking.hf_thf_prob oc p
+        else if formatval = 256 then
+          Checking.hf_mg_prob oc p;
+        let pureid = tm_hashroot q in
+        let inthyid = hashtag (hashopair2 (Some(Checking.hfthyid)) pureid) 33l in
+        Printf.fprintf oc "Pure Id: %s\nId in Theory: %s\nAddress in Theory: %s\n" (hashval_hexstring pureid) (hashval_hexstring inthyid) (addr_pfgaddrstr (hashval_term_addr inthyid))
+      end);
+  ac "rewardbountyprop" "rewardbountyprop <ltcblockid> <ltcburntxid> [format]" "Convert an ltc block id and ltc tx id (where the tx should be a burn tx confirmed in the block),\ncreate the corresponding proposition where a reward bounty would be placed.\nIf the format argument is given, then it can have the following values:\nassembly : give the conjecture in the assembly format proofgold can parse\nfof : try to give the conjecture as a first-order problem in the TPTP fof format\nthf : give the conjecture as a higher-order problem in the TPTP thf format\n"
+    (fun oc al ->
+      let (lbk,ltx,formatval) =
+        match al with
+        | [lbk;ltx] -> (lbk,ltx,0)
+        | [lbk;ltx;f] when f = "assembly" -> (lbk,ltx,1)
+        | [lbk;ltx;f] when f = "fof" -> (lbk,ltx,2)
+        | [lbk;ltx;f] when f = "thf" -> (lbk,ltx,3)
+        | [lbk;ltx;f] when f = "mg" -> (lbk,ltx,256)
+        | _ -> raise BadCommandForm
+      in
+      begin
+	let lbk = hexstring_hashval lbk in
+	let ltx = hexstring_hashval ltx in
+        let h = hashpair lbk ltx in
+        let (pc,p,q) = Checking.reward_bounty_prop 2216L h in (** q is the normalized version of p, where the bounty really goes, but p is what we show and can put into the document since it will be normalized anyway **) (** 2216 is a fake block height just to indicate we want the reward bounty prop after the August 30 2020 emergency hard fork **)
         let cls = (try (List.nth ["Random1";"Random2";"Random3";"QBF";"HOSetConstr";"HOUnif";"CombUnif";"AbstrHF";"DiophantineMod";"AIM1";"AIM2";"Diophantine"] pc) with _ -> "Unknown") in
 	Printf.fprintf oc "%s\n" cls;
         if formatval = 0 then
@@ -3197,6 +3259,15 @@ let initialize_commands () =
 		raise (Failure ("could not interpret " ^ kh ^ " as a block or ledger root"))
 	  end
       | _ -> raise BadCommandForm);
+  ac "filterwallet" "filterwallet [<ledgerroot>]" "Remove private keys/addresses not classified as fresh if they are empty.\nA backup of the old wallet is kept in the walletbkps directory."
+    (fun oc al ->
+      let lr =
+        match al with
+        | [] -> get_ledgerroot (get_bestblock_print_warnings oc)
+        | [h] -> hexstring_hashval h
+        | _ -> raise BadCommandForm
+      in
+      Commands.filter_wallet lr);
   ac "dumpwallet" "dumpwallet <filename>" "Dump the current wallet keys, addresses, etc., to a given file."
     (fun oc al ->
       match al with

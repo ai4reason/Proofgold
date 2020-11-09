@@ -84,6 +84,7 @@ val verifyfullledger : out_channel -> hashval -> unit
 
 val requestfullledger : out_channel -> hashval -> unit
 
+val filter_wallet : hashval -> unit
 val dumpwallet : string -> unit
 val pblockchain : out_channel -> (hashval * hashval * hashval) option -> int -> unit
 val reprocess_blockchain : out_channel -> (hashval * hashval * hashval) option -> int -> unit

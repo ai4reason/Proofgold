@@ -32,7 +32,7 @@ let reward_maturation = 32L (*** rewards become stakable after 32 blocks, about 
  ***)
 let reward_locktime = 32L
 
-let max_assets_at_address = 32 (** preventing having long lists of assets with a small hard limit **)
+let max_assets_at_address = 34 (** preventing having long lists of assets with a small hard limit ; increased from 32 to 34 as part of Aug 30 2020 emergency hard fork **)
 exception MaxAssetsAtAddress
 
 let coinagefactor blkh bday obl =
@@ -1723,6 +1723,14 @@ let ctree_supports_tx_2 strct exp req tht sigt blkh tx aal al tr =
 	vmsg (fun oc -> Printf.fprintf oc "Document has already been published at %s.\n" (Cryptocurr.addr_pfgaddrstr alpha));
 	raise NotSupported
   in
+  let ensure_addr_lt32 alpha =
+    let hl = ctree_lookup_addr_assets exp req tr (addr_bitseq alpha) in
+    if hlist_len hl >= 32 then
+      begin
+        vmsg (fun oc -> Printf.fprintf oc "%s is almost full. No new bounties allowed.\n" (Cryptocurr.addr_pfgaddrstr alpha));
+        raise NotSupported
+      end
+  in
   let spentmarkersjustified = ref [] in
   List.iter
     (fun (alpha,(obl,u)) ->
@@ -1874,6 +1882,8 @@ let ctree_supports_tx_2 strct exp req tht sigt blkh tx aal al tr =
 	    | CheckingFailure -> raise NotSupported
 	    | NonNormalTerm -> raise NotSupported
 	  end
+      | Bounty(_) ->
+         ensure_addr_lt32 alpha; (*** make sure the address for the bounty is not almost full ***)
       | _ -> ()
     )
     outpl;
@@ -2207,6 +2217,8 @@ let rec ctree_singlebranch_lub bl hl c =
   | Some(_,hl2) -> CLeaf(bl,nehlist_lub hl hl2)
   | None -> CLeaf(bl,hl)
 
+exception IncompatibleCTrees
+
 let rec ctree_lub c1 c2 =
   match c1 with
   | CHash(_) -> c2
@@ -2217,7 +2229,7 @@ let rec ctree_lub c1 c2 =
 	| CHash(_) -> c1
 	| CLeaf(bl2,hl2) -> ctree_singlebranch_lub bl2 hl2 c1
 	| CLeft(c20) -> CLeft (ctree_lub c10 c20)
-	| _ -> raise (Failure "no lub for incompatible ctrees")
+	| _ -> raise IncompatibleCTrees
       end
   | CRight(c11) ->
       begin
@@ -2225,14 +2237,14 @@ let rec ctree_lub c1 c2 =
 	| CHash(_) -> c1
 	| CLeaf(bl2,hl2) -> ctree_singlebranch_lub bl2 hl2 c1
 	| CRight(c21) -> CRight (ctree_lub c11 c21)
-	| _ -> raise (Failure "no lub for incompatible ctrees")
+	| _ -> raise IncompatibleCTrees
       end
   | CBin(c10,c11) ->
       begin
 	match c2 with
 	| CHash(_) -> c1
 	| CBin(c20,c21) -> CBin(ctree_lub c10 c20,ctree_lub c11 c21)
-	| _ -> raise (Failure "no lub for incompatible ctrees")
+	| _ -> raise IncompatibleCTrees
       end
 
 let octree_lub oc1 oc2 =
@@ -2258,7 +2270,18 @@ and load_expanded_ctree c =
     let c2 = load_expanded_ctree_a c 9 in
     let r = ctree_hashroot c2 in
     let ce = DbCTreeElt.dbget r in
-    ctree_lub c2 ce
+    try
+      ctree_lub c2 ce
+    with IncompatibleCTrees ->
+      let re = ctree_hashroot ce in
+      if not (re = r) then
+        begin
+          DbCTreeElt.dbdelete r;
+          DbCTreeElt.dbpurge();
+          if ctree_element_p ce then DbCTreeElt.dbput re ce;
+          raise (Failure "CTree database problem. Tried to repair.")
+        end;
+      raise (Failure "Incompatible ledger tree elements; should not be possible")
   with Not_found -> c
 
 let load_expanded_octree c =
@@ -3252,7 +3275,7 @@ and verifyhlist_h h pl =
 let rec verifyledger c pl =
   match c with
   | CHash(h) -> verifyledger_h h pl
-  | CLeaf(bl,NehHash(h,_)) ->  verifyhlist_h h pl
+  | CLeaf(bl,NehHash(h,_)) ->  verifyhlist_h h (List.rev bl @ pl)
   | CLeaf(_,_) -> raise (Failure "Bug: Unexpected ctree elt case of nehhlist other than hash")
   | CLeft(c0) ->
       verifyledger c0 (false::pl)

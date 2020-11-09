@@ -56,7 +56,7 @@ val sei_diophantine : (int -> Ser.seist -> int * Ser.seist) -> Ser.seist -> trm
 val sei_aim1 : (int -> Ser.seist -> int * Ser.seist) -> Ser.seist -> trm
 val sei_aim2 : (int -> Ser.seist -> int * Ser.seist) -> Ser.seist -> trm
 
-val reward_bounty_prop : hashval -> int * trm * trm
+val reward_bounty_prop : int64 -> hashval -> int * trm * trm
 val hf_trm_str : trm -> string list -> string
 val ahf_trm_str : trm -> string list -> string
 val aim_trm_str : trm -> string list -> string

@@ -268,6 +268,102 @@ let save_wallet () =
     Utils.log_string (Printf.sprintf "exception during save_wallet: %s\n" (Printexc.to_string e));
     close_out s
 
+let filter_wallet lr =
+  let bkpwalldir =
+    let bkpwalldir = Filename.concat (datadir()) "walletbkps" in
+    if Sys.file_exists bkpwalldir then
+      if Sys.is_directory bkpwalldir then
+	bkpwalldir
+      else
+	datadir() (** in case a nondirectory is named "walletbkps" just put the backup files in the top level directory **)
+    else
+      begin
+	Unix.mkdir bkpwalldir 0b111111000;
+	bkpwalldir
+      end
+  in
+  let currtm = Int64.of_float (Unix.time()) in
+  let bkpwallfn = Filename.concat bkpwalldir (Printf.sprintf "walletbkp%Ld" currtm) in
+  let wallfn = Filename.concat (datadir()) "wallet" in
+  if Sys.file_exists wallfn then Sys.rename wallfn bkpwallfn;
+  let s = open_out_bin wallfn in
+  try
+    let ws = ref [] in
+    let wns = ref [] in
+    List.iter
+      (fun ((k,b,_,_,alpha1,_) as x) ->
+        try
+          if not (ctree_lookup_addr_assets true false (CHash(lr)) (addr_bitseq (p2pkhaddr_addr alpha1)) = HNil) then
+            begin
+              ws := x::!ws;
+	      output_byte s 0;
+	      seocf (seo_prod seo_big_int_256 seo_bool seoc (k,b) (s,None))
+            end
+        with _ ->
+          begin
+            ws := x::!ws;
+	    output_byte s 0;
+	    seocf (seo_prod seo_big_int_256 seo_bool seoc (k,b) (s,None))
+          end)
+      !walletkeys_staking;
+    walletkeys_staking := !ws;
+    List.iter
+      (fun ((k,b,_,_,alpha1,_) as x) ->
+        try
+          if not (ctree_lookup_addr_assets true false (CHash(lr)) (addr_bitseq (p2pkhaddr_addr alpha1)) = HNil) then
+            begin
+              wns := x::!wns;
+	      output_byte s 4;
+	      seocf (seo_prod seo_big_int_256 seo_bool seoc (k,b) (s,None))
+            end
+        with _ ->
+          begin
+            wns := x::!wns;
+	    output_byte s 4;
+	    seocf (seo_prod seo_big_int_256 seo_bool seoc (k,b) (s,None))
+          end)
+      !walletkeys_nonstaking;
+    walletkeys_nonstaking := !wns;
+    List.iter
+      (fun (k,b,_,_,_,_) ->
+	output_byte s 5;
+	seocf (seo_prod seo_big_int_256 seo_bool seoc (k,b) (s,None)))
+      !walletkeys_staking_fresh;
+    List.iter
+      (fun (k,b,_,_,_,_) ->
+	output_byte s 6;
+	seocf (seo_prod seo_big_int_256 seo_bool seoc (k,b) (s,None)))
+      !walletkeys_nonstaking_fresh;
+    List.iter
+      (fun (_,_,scr) ->
+	output_byte s 1;
+	seocf (seo_list seo_int8 seoc scr (s,None)))
+      !walletp2shs;
+    List.iter
+      (fun endors ->
+	output_byte s 2;
+	seocf (seo_prod6 seo_payaddr seo_payaddr (seo_prod seo_big_int_256 seo_big_int_256) seo_varintb seo_bool seo_signat seoc endors (s,None)))
+      !walletendorsements;
+    List.iter
+      (fun watchaddr ->
+	output_byte s 3;
+	seocf (seo_addr seoc watchaddr (s,None)))
+      !walletwatchaddrs;
+    List.iter
+      (fun watchaddr ->
+	output_byte s 7;
+	seocf (seo_addr seoc watchaddr (s,None)))
+      !walletwatchaddrs_offlinekey;
+    List.iter
+      (fun watchaddr ->
+	output_byte s 8;
+	seocf (seo_addr seoc watchaddr (s,None)))
+      !walletwatchaddrs_offlinekey_fresh;
+    close_out s
+  with e ->
+    Utils.log_string (Printf.sprintf "exception during filter_wallet: %s\n" (Printexc.to_string e));
+    close_out s
+
 let append_wallet f =
   let wallfn = Filename.concat (datadir()) "wallet" in
   let s = open_out_gen [Open_creat;Open_append;Open_wronly;Open_binary] 0o660 wallfn in

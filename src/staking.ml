@@ -183,7 +183,7 @@ let compute_staking_chances (prevblkh,lbk,ltx) fromtm totm =
           if not (!Commands.stakingassets = []) || not (lul = []) then
 	    let nextstake i stkaddr h bday obl v toburn =
 	      Hashtbl.add nextstakechances (lbk,ltx) (NextStake(i,stkaddr,h,bday,obl,v,toburn,ref None,thyroot,thytree,sigroot,sigtree));
-	      raise Exit
+              raise Exit
 	    in
 	    let nextpureburn i lutxo txidh vout toburn =
               Hashtbl.add nextstakechances (lbk,ltx) (NextPureBurn(i,lutxo,txidh,vout,toburn,ref None,thyroot,thytree,sigroot,sigtree));
@@ -275,8 +275,8 @@ let compute_staking_chances (prevblkh,lbk,ltx) fromtm totm =
 				   minburntostake := Some(toburn,!i,Some(stkaddr,h),None)
 			         end
 		          end;
-		        if le_big_int toburn zero_big_int then (*** hit without burn ***)
-		          (nextstake !i stkaddr h bday obl v (Some(0L))) (*** burn nothing, but announce in the pow chain (ltc) ***)
+			if le_big_int toburn zero_big_int then (*** hit without burn ***)
+		          nextstake !i stkaddr h bday obl v (Some(0L)) (*** burn nothing, but announce in the pow chain (ltc) ***)
 		        else
 		          if le_big_int toburn mbnb then (*** hit with burn ***)
 			    nextstake !i stkaddr h bday obl v (Some(int64_of_big_int toburn))
@@ -609,7 +609,7 @@ let stakingthread () =
                               let reward2 = Int64.shift_right reward 1 in (** half reward goes to staker, half goes to bounty (or burned) **)
 			      let stkoutl =
                                 try
-                                  let (_,_,p) = Checking.reward_bounty_prop csm0 in
+                                  let (_,_,p) = Checking.reward_bounty_prop blkh csm0 in
                                   let hfthyid = Checking.hfthyid in
                                   let ppureid = tm_hashroot p in
                                   let pthyid = hashtag (hashopair2 (Some(hfthyid)) ppureid) 33l in
@@ -1067,7 +1067,7 @@ let stakingthread () =
                             let reward2 = Int64.shift_right reward 1 in (** half reward goes to staker and other half goes to bounty (or burned) **)
 			    let stkoutl =
                               try
-                                let (_,_,p) = Checking.reward_bounty_prop csm0 in
+                                let (_,_,p) = Checking.reward_bounty_prop blkh csm0 in
                                 let hfthyid = Checking.hfthyid in
                                 let ppureid = tm_hashroot p in
                                 let pthyid = hashtag (hashopair2 (Some(hfthyid)) ppureid) 33l in

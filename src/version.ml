@@ -5,6 +5,6 @@
    file COPYING or http://www.opensource.org/licenses/mit-license.php. *)
 
 let clientdescr = "Proofgold"
-let clientversion = "0.1.7"
+let clientversion = "0.1.8"
 let useragent = clientdescr ^ " " ^ clientversion
 let protocolversion = 1l
