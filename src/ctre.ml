@@ -3233,3 +3233,37 @@ let export_ctree_subtop_subsubtop c h p1 p2 =
   done;
   export_ctree_subelts c h !bl
 
+exception MissingAsset of hashval * bool list
+exception MissingHConsElt of hashval * bool list
+exception MissingCTreeElt of hashval * bool list
+
+let rec verifyhcons (aid,k) pl =
+  if not (DbAsset.dbexists aid) then raise (MissingAsset(aid,pl));
+  match k with
+  | None -> ()
+  | Some(k,_) -> verifyhlist_h k pl
+and verifyhlist_h h pl =
+  try
+    let hc = DbHConsElt.dbget h in
+    verifyhcons hc pl
+  with Not_found ->
+    raise (MissingHConsElt(h,pl))
+
+let rec verifyledger c pl =
+  match c with
+  | CHash(h) -> verifyledger_h h pl
+  | CLeaf(bl,NehHash(h,_)) ->  verifyhlist_h h pl
+  | CLeaf(_,_) -> raise (Failure "Bug: Unexpected ctree elt case of nehhlist other than hash")
+  | CLeft(c0) ->
+      verifyledger c0 (false::pl)
+  | CRight(c1) ->
+      verifyledger c1 (true::pl)
+  | CBin(c0,c1) ->
+      verifyledger c0 (false::pl);
+      verifyledger c1 (true::pl)
+and verifyledger_h h pl =
+  try
+    let c = DbCTreeElt.dbget h in
+    verifyledger c pl
+  with Not_found ->
+    raise (MissingCTreeElt(h,pl))

@@ -23,12 +23,57 @@ val shutdown_close : Unix.file_descr -> unit
  blockburns associates a proofgold block id with all the (lbh,ltx) burns supporting it.
     Typically there will be only one such burn, but this cannot be enforced.
  **)
-val outlinevals : (hashval * hashval,hashval * int64 * int64 * (hashval * int32) * (hashval * hashval) option * hashval * int64) Hashtbl.t
-val validheadervals : (hashval * hashval,Z.t * int64 * hashval * hashval option * hashval option) Hashtbl.t
-val validblockvals : (hashval * hashval,unit)  Hashtbl.t
-val outlinesucc : (hashval * hashval,hashval * hashval) Hashtbl.t
-val blockburns : (hashval,hashval * hashval) Hashtbl.t
 
+module Db_outlinevals :
+    sig
+      val dbinit : unit -> unit
+      val dbget : hashval -> hashval * int64 * int64 * (hashval * int32) * (hashval * hashval) option * hashval * int64
+      val dbexists : hashval -> bool
+      val dbput : hashval -> hashval * int64 * int64 * (hashval * int32) * (hashval * hashval) option * hashval * int64 -> unit
+      val dbdelete : hashval -> unit
+    end
+
+module Db_validheadervals :
+    sig
+      val dbinit : unit -> unit
+      val dbget : hashval -> Z.t * int64 * hashval * hashval option * hashval option
+      val dbexists : hashval -> bool
+      val dbput : hashval -> Z.t * int64 * hashval * hashval option * hashval option -> unit
+      val dbdelete : hashval -> unit
+    end
+      
+module Db_validblockvals :
+    sig
+      val dbinit : unit -> unit
+      val dbget : hashval -> bool
+      val dbexists : hashval -> bool
+      val dbput : hashval -> bool -> unit
+      val dbdelete : hashval -> unit
+    end
+
+module Db_outlinesucc :
+    sig
+      val dbinit : unit -> unit
+      val dbget : hashval -> hashval * hashval
+      val dbexists : hashval -> bool
+      val dbput : hashval -> hashval * hashval -> unit
+      val dbdelete : hashval -> unit
+    end
+
+module Db_blockburns :
+    sig
+      val dbinit : unit -> unit
+      val dbget : hashval -> hashval * hashval
+      val dbexists : hashval -> bool
+      val dbput : hashval -> hashval * hashval -> unit
+      val dbdelete : hashval -> unit
+    end
+
+val get_outlinesucc : hashval * hashval -> (hashval * hashval) list
+val insert_outlinesucc : hashval * hashval -> hashval * hashval -> unit
+val get_blockburns : hashval -> (hashval * hashval) list
+val insert_blockburn : hashval -> hashval * hashval -> unit
+      
 val missingheaders : (int64 * hashval) list ref
 val missingdeltas : (int64 * hashval) list ref
 
@@ -84,6 +129,7 @@ type connstate = {
     sendqueuenonempty : Condition.t;
     mutable nonce : int64 option;
     mutable handshakestep : int;
+    mutable srvs : int64;
     mutable peertimeskew : int;
     mutable protvers : int32;
     mutable useragent : string;

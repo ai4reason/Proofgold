@@ -62,7 +62,8 @@ echo let ltcrpcuser = ref \"ltcuser\" >> src/config.ml
 echo let ltcrpcpass = ref \"ltcpass\" >> src/config.ml
 echo let ltcnotifyport = ref 21820 >> src/config.ml
 echo let ltcaddresses = ref [] >> src/config.ml
-echo let curl = ref \"/usr/bin/curl\" >> src/config.ml
+echo let ltctradeaddresses = ref [] >> src/config.ml
+echo let curl = ref \"`which curl`\" >> src/config.ml
 echo let maxconns = ref 20 >> src/config.ml
 echo let lastcheckpoint = ref \"\" >> src/config.ml
 echo let ltcblockcheckpoint = ref \"\" >> src/config.ml
@@ -90,6 +91,9 @@ if [ $RANDOMSEED ]; then
 else
     echo let randomseed = ref None >> src/config.ml
 fi
+echo let independentbootstrap = ref false >> src/config.ml
+echo let fullnode = ref true >> src/config.ml
+echo let ordermatcher = ref false >> src/config.ml
 echo let minconnstostake = ref 2 >> src/config.ml
 if [ $BYTECODE ]; then
     if [ $INSTALLDIR ]; then

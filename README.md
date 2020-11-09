@@ -5,7 +5,8 @@ Information about proofgold can be found at proofgold.org.
 
 * System Requirements
 
-Proofgold requires linux, curl, the ocaml programming language and the Zarith module.
+Proofgold requires linux, curl, the ocaml programming language, the Zarith module
+and litecoin.
 
 On debian, installing the requirements (except Zarith) can be done as follows:
 
@@ -16,6 +17,10 @@ Zarith is available here:
 https://github.com/ocaml/Zarith
 
 The README.md file explains how to compile and install Zarith.
+
+Litecoin is available from litecoin.org. It needs to be run in a way
+so that RPC calls can be made from Proofgold. This means the litecoin.conf
+file needs to have some settings described below.
 
 * Installation
 
@@ -28,6 +33,24 @@ Sometimes ocaml cannot find zarith. In that case, manually
 edit Makefile (or Makefile.in and rerun ./configure)
 to replace each occurrence of +zarith with the full path
 to the directory where zarith was installed.
+
+You can build the bytecode with either:
+
+```
+makebytecode
+```
+
+or
+
+```
+makevmbytecode
+```
+
+The second script compiles a version where ocaml
+handles the threads instead of the operating system.
+If you find proofgold is running very slowly,
+you might need to use makevmbytecode to obtain
+an executable that works as intended.
 
 The configure script can be given some parameters.
 For example, the default data directory is .proofgold in the

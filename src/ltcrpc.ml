@@ -48,12 +48,6 @@ let ltc_oldest_to_consider = ref (hexstring_hashval "ccca3ef9b5dcb0a01de0d776ae6
 let ltc_oldest_to_consider_time = ref 1591626833L (** block height on June 8 2020 **)
 let ltc_oldest_to_consider_height = ref 1855917L (** median time on June 8 2020 **)
 
-let ltc_oldblocks = (*** add an ltc block every 50,000 blocks or so to help nodes with initial sync; order them from oldest to newest ***)
-  []
-
-let ltc_testnet_oldblocks = (*** add an ltc block every 50,000 blocks or so to help nodes with initial sync; order them from oldest to newest ***)
-  []
-
 (*** testnet ***)
 let ltctestnet () =
   ltc_oldest_to_consider := hexstring_hashval "0c1b15b7531f59417705457be47152d4278471036e4745f135c41600c9c94742";
@@ -800,15 +794,15 @@ let rec ltc_process_block h =
 	  (fun txh ->
 	    let txhh = hexstring_hashval txh in
 	    let handle txid1 vout1 burned lprevtx dnxt =
-	      if not (List.mem (hh,txhh) (Hashtbl.find_all blockburns dnxt)) then Hashtbl.add blockburns dnxt (hh,txhh);
+              insert_blockburn dnxt (hh,txhh);
 	      if lprevtx = (0l,0l,0l,0l,0l,0l,0l,0l) then
 		begin
 		  (Utils.log_string (Printf.sprintf "Adding burn %s for genesis header %s\n" txh (hashval_hexstring dnxt)));
 		  txhhs := txhh :: !txhhs;
 		  genl := (txhh,burned,dnxt)::!genl;
-		  if not (Hashtbl.mem outlinevals (hh,txhh)) then
+		  if not (Db_outlinevals.dbexists (hashpair hh txhh)) then
 		    begin
-		      Hashtbl.add outlinevals (hh,txhh) (dnxt,tm,burned,(txid1,vout1),None,hashpair hh txhh,1L);
+		      Db_outlinevals.dbput (hashpair hh txhh) (dnxt,tm,burned,(txid1,vout1),None,hashpair hh txhh,1L);
 		      (*** since the burn is presumably new, add to missing lists; this should never happen since the genesis phase has passed. ***)
 		      missingheaders := List.merge (fun (i,_) (j,_) -> compare i j) [(1L,dnxt)] !missingheaders;
 		      missingdeltas := List.merge (fun (i,_) (j,_) -> compare i j) [(1L,dnxt)] !missingdeltas;
@@ -834,15 +828,15 @@ let rec ltc_process_block h =
 		    (Utils.log_string (Printf.sprintf "Adding burn %s for header %s (txid1 %s vout1 %ld)\n" txh (hashval_hexstring dnxt) (hashval_hexstring txid1) vout1));
 		    txhhs := txhh :: !txhhs;
 		    succl := (dprev,txhh,burned,dnxt)::!succl;
-		    if not (Hashtbl.mem outlinevals (hh,txhh)) then
+		    if not (Db_outlinevals.dbexists (hashpair hh txhh)) then
 		      begin
 			try
 			  match lprevblkh with
 			  | Some(lprevblkh) ->
 			      let lprevblkh = hexstring_hashval lprevblkh in
-			      let (_,_,_,_,_,_,dhght) = Hashtbl.find outlinevals (lprevblkh,lprevtx) in
+			      let (_,_,_,_,_,_,dhght) = Db_outlinevals.dbget (hashpair lprevblkh lprevtx) in
 			      let currhght = Int64.add 1L dhght in
-			      Hashtbl.add outlinevals (hh,txhh) (dnxt,tm,burned,(txid1,vout1),Some(lprevblkh,lprevtx),hashpair hh txhh,currhght);
+			      Db_outlinevals.dbput (hashpair hh txhh) (dnxt,tm,burned,(txid1,vout1),Some(lprevblkh,lprevtx),hashpair hh txhh,currhght);
 			      (*** since the burn is presumably new, add to missing lists (unless it was staked by the current node which is handled in staking module) ***)
 			      missingheaders := List.merge (fun (i,_) (j,_) -> compare i j) [(currhght,dnxt)] !missingheaders;
 			      missingdeltas := List.merge (fun (i,_) (j,_) -> compare i j) [(currhght,dnxt)] !missingdeltas;
@@ -938,7 +932,11 @@ let rec ltc_process_block h =
 	else if not (prevkey = !ltc_oldest_to_consider) then
 	  DbLtcPfgStatus.dbput hh (LtcPfgStatusPrev(prevkey)) (*** pointer to last ltc block where proofgold status changed ***)
       end;
-      DbLtcBlock.dbput hh (prevh,tm,hght,!txhhs)
+      DbLtcBlock.dbput hh (prevh,tm,hght,!txhhs);
+      let datadir = if !Config.testnet then (Filename.concat !Config.datadir "testnet") else !Config.datadir in
+      let f = open_out (Filename.concat datadir "lastltcblock") in
+      Printf.fprintf f "%s\n" h;
+      close_out f
     end
 
 let ltc_medtime () =
@@ -1052,11 +1050,6 @@ let find_pfg_header_ltc_burn h =
   in
   find_pfg_header_ltc_burn_rec [!ltc_bestblock]
 
-let ltc_old_sync () =
-  List.iter
-    ltc_process_block
-    (if !Config.testnet then ltc_testnet_oldblocks else ltc_oldblocks)
-
 let rec delete_to_ltc_block kfrom k =
   try
     let (prevh,_,_,_) = DbLtcBlock.dbget k in
@@ -1090,7 +1083,31 @@ let retractltcblock h =
 let rec ltc_forward_from_block lbh =
   ltc_process_block lbh;
   let (prev,tm,hght,txhs,nbh) = ltc_getblock lbh in
-  Utils.log_string (Printf.sprintf "lffb: %Ld %s\n" hght lbh);
   match nbh with
   | Some(nbh) -> ltc_forward_from_block nbh
   | None -> ()
+
+(** if the oldest possible ltc block has not been processed (initial sync), then start from there **)
+let rec ltc_forward_from_oldest_possible () =
+  let h = !ltc_oldest_to_consider in
+  let (_,_,_,_,nbh) = ltc_getblock (hashval_hexstring h) in
+  match nbh with
+  | None -> ()
+  | Some(nbh) ->
+     if not (DbLtcBlock.dbexists (hexstring_hashval nbh)) then ltc_forward_from_block nbh
+
+let rec ltc_forward_from_oldest () =
+  let datadir = if !Config.testnet then (Filename.concat !Config.datadir "testnet") else !Config.datadir in
+  let fn = Filename.concat datadir "lastltcblock" in
+  if Sys.file_exists fn then
+    let f = open_in (Filename.concat datadir "lastltcblock") in
+    try
+      let l = input_line f in
+      close_in f;
+      ltc_forward_from_block l
+    with _ ->
+      close_in f;
+      ltc_forward_from_oldest_possible()
+  else
+    ltc_forward_from_oldest_possible()
+

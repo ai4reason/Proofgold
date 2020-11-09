@@ -384,3 +384,23 @@ let sei_prod6 s1 s2 s3 s4 s5 s6 i c =
   let (p,c) = s5 i c in
   let (q,c) = s6 i c in
   ((m,n,k,l,p,q),c)
+
+let seo_prod7 s1 s2 s3 s4 s5 s6 s7 o (m,n,k,l,p,q,r) c =
+  let c = s1 o m c in
+  let c = s2 o n c in
+  let c = s3 o k c in
+  let c = s4 o l c in
+  let c = s5 o p c in
+  let c = s6 o q c in
+  let c = s7 o r c in
+  c
+
+let sei_prod7 s1 s2 s3 s4 s5 s6 s7 i c =
+  let (m,c) = s1 i c in
+  let (n,c) = s2 i c in
+  let (k,c) = s3 i c in
+  let (l,c) = s4 i c in
+  let (p,c) = s5 i c in
+  let (q,c) = s6 i c in
+  let (r,c) = s7 i c in
+  ((m,n,k,l,p,q,r),c)

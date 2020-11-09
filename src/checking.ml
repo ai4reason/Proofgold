@@ -3839,7 +3839,7 @@ let rec comb_trm_fof_str m vl =
 
 let comb_fof_header c =
   Printf.fprintf c "fof(keq,axiom,(! [X,Y] : (a(a(k,X),Y) = X))).\n";
-  Printf.fprintf c "fof(seq,axiom,(! [X,Y] : (a(a(a(s,X),Y),Z) = a(a(X,Z),a(Y,Z))))).\n"
+  Printf.fprintf c "fof(seq,axiom,(! [X,Y,Z] : (a(a(a(s,X),Y),Z) = a(a(X,Z),a(Y,Z))))).\n"
 
 let comb_fof_prob c p =
   comb_fof_header c;

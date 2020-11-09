@@ -29,6 +29,7 @@ val ltcrpcuser : string ref
 val ltcrpcpass : string ref
 val ltcnotifyport : int ref
 val ltcaddresses : string list ref
+val ltctradeaddresses : string list ref
 val curl : string ref
 val maxconns : int ref
 val lastcheckpoint : string ref
@@ -54,3 +55,6 @@ val reward_lock_relative : int64 option ref
 val reward_lock_absolute : int64 option ref
 val invalidatedblocks : string list ref
 val validatedblocks : string list ref
+val independentbootstrap : bool ref
+val fullnode : bool ref
+val ordermatcher : bool ref

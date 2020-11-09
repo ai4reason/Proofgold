@@ -28,7 +28,10 @@ let boolconfigvars = [
 ("extraindex",fun x -> Config.extraindex := x);
 ("generatenewrewardaddresses",fun x -> Config.generatenewrewardaddresses := x);
 ("stakewithrewards",fun x -> Config.stakewithrewards := x);
-("offlinestakerewardsdest",fun x -> Config.offlinestakerewardsdest := x)
+("offlinestakerewardsdest",fun x -> Config.offlinestakerewardsdest := x);
+("independentbootstrap",fun x -> Config.independentbootstrap := x);
+("fullnode",fun x -> Config.fullnode := x);
+("ordermatcher",fun x -> Config.ordermatcher := x);
 ];;
 let intconfigvars = [
 ("port",fun x -> Config.port := x);
@@ -67,9 +70,18 @@ let intoptionconfigvars = [
 ("socks",fun x -> Config.socks := x)
 ];;
 let stringlistconfigvars = [
-("ltcaddress",fun x -> Config.ltcaddresses := x::!Config.ltcaddresses);
-("invalidateblock",fun x -> Config.invalidatedblocks := x::!Config.invalidatedblocks);
-("validateblock",fun x -> Config.validatedblocks := x::!Config.validatedblocks)
+    ("ltcaddress",fun x ->
+                  if List.mem x !Config.ltctradeaddresses then
+                    Printf.printf "WARNING: %s is already an ltc trade address, so not adding as an address for staking/burning.\n" x
+                  else
+                    Config.ltcaddresses := x::!Config.ltcaddresses);
+    ("ltctradeaddress",fun x ->
+                       if List.mem x !Config.ltctradeaddresses then
+                         Printf.printf "WARNING: %s is already an ltc address for staking/burning, so not adding as an address for trading.\n" x
+                       else
+                         Config.ltctradeaddresses := x::!Config.ltctradeaddresses);
+    ("invalidateblock",fun x -> Config.invalidatedblocks := x::!Config.invalidatedblocks);
+    ("validateblock",fun x -> Config.validatedblocks := x::!Config.validatedblocks)
 ];;
 
 exception Done

@@ -9,6 +9,7 @@ open Ser
 open Hashaux
 open Sha256
 open Hash
+open Db
 
 let shutdown_close s =
   try
@@ -32,12 +33,67 @@ let shutdown_close s =
  blockburns associates a proofgold block id with all the (lbh,ltx) burns supporting it.
     Typically there will be only one such burn, but this cannot be enforced.
  **)
-let outlinevals : (hashval * hashval,hashval * int64 * int64 * (hashval * int32) * (hashval * hashval) option * hashval * int64) Hashtbl.t = Hashtbl.create 10000
-let validheadervals : (hashval * hashval,Z.t * int64 * hashval * hashval option * hashval option) Hashtbl.t = Hashtbl.create 10000
-let validblockvals : (hashval * hashval,unit)  Hashtbl.t = Hashtbl.create 10000
-let outlinesucc : (hashval * hashval,hashval * hashval) Hashtbl.t = Hashtbl.create 10000
-let blockburns : (hashval,hashval * hashval) Hashtbl.t = Hashtbl.create 10000
 
+module Db_outlinevals = Dbbasic (struct type t = hashval * int64 * int64 * (hashval * int32) * (hashval * hashval) option * hashval * int64 let basedir = "outlinevals" let seival = sei_prod7 sei_hashval sei_int64 sei_int64 (sei_prod sei_hashval sei_int32) (sei_option (sei_prod sei_hashval sei_hashval)) sei_hashval sei_int64 seic let seoval = seo_prod7 seo_hashval seo_int64 seo_int64 (seo_prod seo_hashval seo_int32) (seo_option (seo_prod seo_hashval seo_hashval)) seo_hashval seo_int64 seoc end)
+
+module Db_validheadervals = Dbbasic (struct type t = Z.t * int64 * hashval * hashval option * hashval option let basedir = "validheadervals" let seival = sei_prod5 sei_big_int_256 sei_int64 sei_hashval (sei_option sei_hashval) (sei_option sei_hashval) seic let seoval = seo_prod5 seo_big_int_256 seo_int64 seo_hashval (seo_option seo_hashval) (seo_option seo_hashval) seoc end)
+
+module Db_validblockvals = Dbbasic (struct type t = bool let basedir = "validblockvals" let seival = sei_bool seic let seoval = seo_bool seoc end)
+
+module Db_outlinesucc = Dbbasic (struct type t = hashval * hashval let basedir = "outlinesucc" let seival = sei_prod sei_hashval sei_hashval seic let seoval = seo_prod seo_hashval seo_hashval seoc end)
+
+module Db_blockburns = Dbbasic (struct type t = (hashval * hashval) let basedir = "blockburns" let seival = sei_prod sei_hashval sei_hashval seic let seoval = seo_prod seo_hashval seo_hashval seoc end)
+
+let get_outlinesucc (h,k) =
+  let hk = hashpair h k in
+  let osl = ref [] in
+  let i = ref 0l in
+  try
+    while true do
+      let (lbk,ltx) = Db_outlinesucc.dbget (hashtag hk !i) in
+      osl := (lbk,ltx) :: !osl;
+      i := Int32.add !i 1l
+    done;
+    raise Exit
+  with _ -> !osl
+
+let insert_outlinesucc (h,k) (lbk1,ltx1) =
+  let hk = hashpair h k in
+  let i = ref 0l in
+  try
+    while true do
+      let (lbk,ltx) = Db_outlinesucc.dbget (hashtag hk !i) in
+      if (lbk,ltx) = (lbk1,ltx1) then raise Exit;
+      i := Int32.add !i 1l
+    done
+  with
+  | Not_found -> Db_outlinesucc.dbput (hashtag hk !i) (lbk1,ltx1)
+  | _ -> ()
+
+let get_blockburns h =
+  let bbl = ref [] in
+  let i = ref 0l in
+  try
+    while true do
+      let (lbk,ltx) = Db_blockburns.dbget (hashtag h !i) in
+      bbl := (lbk,ltx) :: !bbl;
+      i := Int32.add !i 1l
+    done;
+    raise Exit
+  with _ -> !bbl
+
+let insert_blockburn h (lbk1,ltx1) =
+  let i = ref 0l in
+  try
+    while true do
+      let (lbk,ltx) = Db_blockburns.dbget (hashtag h !i) in
+      if (lbk,ltx) = (lbk1,ltx1) then raise Exit;
+      i := Int32.add !i 1l
+    done
+  with
+  | Not_found -> Db_blockburns.dbput (hashtag h !i) (lbk1,ltx1)
+  | _ -> ()
+           
 let missingheaders = ref [];;
 let missingdeltas = ref [];;
 
@@ -239,7 +295,13 @@ let loadknownpeers () =
 	let n = input_line s in
 	let lasttm = Int64.of_string (input_line s) in
 	if Int64.sub currtm lasttm < 604800L then
-	  (incr kcnt; Hashtbl.add knownpeers n lasttm)
+          begin
+            try
+              let lasttm2 = Hashtbl.find knownpeers n in
+              if lasttm > lasttm2 then Hashtbl.replace knownpeers n lasttm
+            with Not_found ->
+              incr kcnt; Hashtbl.replace knownpeers n lasttm
+          end
       done;
       !kcnt
     with End_of_file -> !kcnt
@@ -251,10 +313,13 @@ let saveknownpeers () =
   let s = open_out peerfn in
   Hashtbl.iter
     (fun n lasttm ->
-      output_string s n;
-      output_char s '\n';
-      output_string s (Int64.to_string lasttm);
-      output_char s '\n')
+      if not (n = "") then
+        begin
+          output_string s n;
+          output_char s '\n';
+          output_string s (Int64.to_string lasttm);
+          output_char s '\n'
+        end)
     knownpeers;
   close_out s
 
@@ -440,6 +505,7 @@ type connstate = {
     sendqueuenonempty : Condition.t;
     mutable nonce : int64 option;
     mutable handshakestep : int;
+    mutable srvs : int64;
     mutable peertimeskew : int;
     mutable protvers : int32;
     mutable useragent : string;
@@ -682,6 +748,7 @@ let handle_msg replyto mt sin sout cs mh m =
 			   (vm,None));
 		      ignore (queue_msg cs Version (Buffer.contents vm));
 		      cs.handshakestep <- 3;
+                      cs.srvs <- srvs;
 		      cs.peertimeskew <- tmskew;
 		      cs.useragent <- ua;
 		      cs.protvers <- minvers;
@@ -694,6 +761,7 @@ let handle_msg replyto mt sin sout cs mh m =
 		    begin
 		      ignore (queue_msg cs Verack "");
 		      cs.handshakestep <- 5;
+                      cs.srvs <- srvs;
 		      cs.peertimeskew <- tmskew;
 		      cs.useragent <- ua;
 		      cs.protvers <- minvers;
@@ -702,7 +770,7 @@ let handle_msg replyto mt sin sout cs mh m =
 		      cs.first_full_height <- ffh;
 		      cs.last_height <- lh;
 		      addknownpeer mytm addr_from;
-		      !send_inv_fn 32 sout cs;
+		      !send_inv_fn 4096 sout cs;
 		      find_and_send_requestmissingblocks cs;
 		    end
 		  else
@@ -742,6 +810,7 @@ let handle_msg replyto mt sin sout cs mh m =
 	  | _ -> raise (Failure ("No handler found for message type " ^ (string_of_msgtype mt)))
 
 let connlistener (s,sin,sout,gcs) =
+  log_string (Printf.sprintf "connlistener thread %d begin %f\n" (Thread.id (Thread.self())) (Unix.gettimeofday()));
   try
     while true do
       try
@@ -807,24 +876,39 @@ let connlistener (s,sin,sout,gcs) =
 	  log_string (Printf.sprintf "Ignoring exception raised in connection listener for %s:\n%s\n" (peeraddr !gcs) (Printexc.to_string exc));
 	  Thread.delay 600. (* wait for 10 minutes before reading any more messages *)
     done
-  with _ -> gcs := None (*** indicate that the connection is dead; it will be removed from netaddr by the netlistener or netseeker ***)
+  with _ ->
+    begin
+      match !gcs with
+      | Some(cs) ->
+         gcs := None; (*** indicate that the connection is dead; it will be removed from netaddr by the netlistener or netseeker ***)
+         Condition.signal cs.sendqueuenonempty; (* signal the connsender so it knows to die *)
+      | _ -> ()
+    end;
+    log_string (Printf.sprintf "connlistener thread %d exit %f\n" (Thread.id (Thread.self())) (Unix.gettimeofday()));
+    Thread.exit ()
 
 let connsender (s,sin,sout,gcs) =
+  log_string (Printf.sprintf "connsender thread %d begin %f\n" (Thread.id (Thread.self())) (Unix.gettimeofday()));
   match !gcs with
   | None ->
-      log_string (Printf.sprintf "connsender was called without gcs being set to a connection state already.\nThis should never happen.\nKilling connection immediately.\n");
-      shutdown_close s
+     log_string (Printf.sprintf "connsender was called without gcs being set to a connection state already.\nThis should never happen.\nKilling connection immediately.\n");
+     shutdown_close s;
+     log_string (Printf.sprintf "connsender thread %d exit %f\n" (Thread.id (Thread.self())) (Unix.gettimeofday()));
+     Thread.exit ()
   | Some(cs) ->
       let connsender_end () =
 	Mutex.unlock cs.connmutex;
 	gcs := None;
-	shutdown_close s
+	shutdown_close s;
+        log_string (Printf.sprintf "connsender thread %d exit %f\n" (Thread.id (Thread.self())) (Unix.gettimeofday()));
+        Thread.exit ()
       in
       try
 	Mutex.lock cs.connmutex;
 	while true do
 	  try
 	    while true do
+              if !gcs = None then connsender_end();
 	      let (mh,replyto,mt,m) = Queue.take cs.sendqueue in
 	      send_msg sout mh replyto mt m
 	    done;
@@ -851,7 +935,7 @@ let connsender (s,sin,sout,gcs) =
 let remove_dead_conns () =
   let tmminus1min = Unix.time() -. 60.0 in
   List.iter
-    (fun (_,_,(s,sin,sout,gcs)) ->
+    (fun (clth,csth,(s,sin,sout,gcs)) ->
       match !gcs with
       | Some(cs) ->
 	  if cs.handshakestep < 5 && cs.conntime < tmminus1min then (*** if the handshake has not completed in 60s, then kill conn ***)
@@ -860,9 +944,9 @@ let remove_dead_conns () =
 		shutdown_close s;
 		close_in sin;
 		close_out sout;
-		gcs := None
+		gcs := None;
 	      with _ ->
-		gcs := None
+		gcs := None;
 	    end
       | _ -> ())
     !netconns;
@@ -886,7 +970,7 @@ let initialize_conn_accept ra s =
       set_binary_mode_in sin true;
       set_binary_mode_out sout true;
       let tm = Unix.time() in
-      let cs = { conntime = tm; realaddr = ra; connmutex = Mutex.create(); sendqueue = Queue.create(); sendqueuenonempty = Condition.create(); nonce = None; handshakestep = 1; peertimeskew = 0; protvers = Version.protocolversion; useragent = ""; addrfrom = ""; banned = false; lastmsgtm = tm; sentinv = Hashtbl.create 100; rinv = Hashtbl.create 1000; invreq = Hashtbl.create 100; invreqhooks = Hashtbl.create 100; itemhooks = Hashtbl.create 100; first_header_height = 0L; first_full_height = 0L; last_height = 0L } in
+      let cs = { conntime = tm; realaddr = ra; connmutex = Mutex.create(); sendqueue = Queue.create(); sendqueuenonempty = Condition.create(); nonce = None; handshakestep = 1; srvs = 0L; peertimeskew = 0; protvers = Version.protocolversion; useragent = ""; addrfrom = ""; banned = false; lastmsgtm = tm; sentinv = Hashtbl.create 100; rinv = Hashtbl.create 1000; invreq = Hashtbl.create 100; invreqhooks = Hashtbl.create 100; itemhooks = Hashtbl.create 100; first_header_height = 0L; first_full_height = 0L; last_height = 0L } in
       let sgcs = (s,sin,sout,ref (Some(cs))) in
       let clth = Thread.create connlistener sgcs in
       let csth = Thread.create connsender sgcs in
@@ -904,6 +988,8 @@ let initialize_conn_2 n s sin sout =
   (*** initiate handshake ***)
   let vers = Version.protocolversion in
   let srvs = 1L in
+  let srvs = if !Config.fullnode then Int64.logor srvs 2L else srvs in
+  let srvs = if !Config.ordermatcher then Int64.logor srvs 4L else srvs in
   let tm = Unix.time() in
   let fhh = 0L in
   let ffh = 0L in
@@ -919,7 +1005,7 @@ let initialize_conn_2 n s sin sout =
        ((vers,srvs,Int64.of_float tm,n,myaddr(),!this_nodes_nonce),
 	(Version.useragent,fhh,ffh,lh,relay,lastchkpt))
        (vm,None));
-  let cs = { conntime = tm; realaddr = n; connmutex = Mutex.create(); sendqueue = Queue.create(); sendqueuenonempty = Condition.create(); nonce = None; handshakestep = 2; peertimeskew = 0; protvers = Version.protocolversion; useragent = ""; addrfrom = ""; banned = false; lastmsgtm = tm; sentinv = Hashtbl.create 100; rinv = Hashtbl.create 1000; invreq = Hashtbl.create 100; invreqhooks = Hashtbl.create 100; itemhooks = Hashtbl.create 100; first_header_height = fhh; first_full_height = ffh; last_height = lh } in
+  let cs = { conntime = tm; realaddr = n; connmutex = Mutex.create(); sendqueue = Queue.create(); sendqueuenonempty = Condition.create(); nonce = None; handshakestep = 2; srvs = 0L; peertimeskew = 0; protvers = Version.protocolversion; useragent = ""; addrfrom = ""; banned = false; lastmsgtm = tm; sentinv = Hashtbl.create 100; rinv = Hashtbl.create 1000; invreq = Hashtbl.create 100; invreqhooks = Hashtbl.create 100; itemhooks = Hashtbl.create 100; first_header_height = fhh; first_full_height = ffh; last_height = lh } in
   ignore (queue_msg cs Version (Buffer.contents vm));
   let sgcs = (s,sin,sout,ref (Some(cs))) in
   let clth = Thread.create connlistener sgcs in
@@ -937,43 +1023,51 @@ let initialize_conn n s =
   initialize_conn_2 n s sin sout
 
 let tryconnectpeer n =
-  if List.length !netconns >= !Config.maxconns then raise EnoughConnections;
-  if Hashtbl.mem bannedpeers n then raise BannedPeer;
-  try
-    Some(List.find (fun (_,_,(_,_,_,gcs)) -> n = peeraddr !gcs) !netconns);
-  with Not_found ->
-    try
-      let (onionaddr,port) = extract_onion_and_port n in
+  if not (n = "") then
+    begin
+      if List.length !netconns >= !Config.maxconns then raise EnoughConnections;
+      if Hashtbl.mem bannedpeers n then raise BannedPeer;
       try
-	let (s,sin,sout) = connectonionpeer !Config.socksport onionaddr port in
-	Some(initialize_conn_2 n s sin sout)
-      with _ -> None
-    with Not_found ->
-      let (ip,port,v6) = extract_ip_and_port n in
-      begin
-	try
-	  match !Config.socks with
-	  | None ->
-	      let s = connectpeer ip port in
-	      Some (initialize_conn n s)
-	  | Some(4) ->
-	      let (s,sin,sout) = connectpeer_socks4 !Config.socksport ip port in
-	      Some (initialize_conn_2 n s sin sout)
-	  | Some(5) ->
-	      raise (Failure "socks5 is not yet supported")
-	  | Some(z) ->
-	      raise (Failure ("do not know what socks" ^ (string_of_int z) ^ " means"))
-	with
-	| RequestRejected ->
-	    log_string (Printf.sprintf "RequestRejected\n");
-	    None
-	| _ ->
-	    None
-      end
+        Some(List.find (fun (_,_,(_,_,_,gcs)) -> n = peeraddr !gcs) !netconns);
+      with Not_found ->
+        try
+          let (onionaddr,port) = extract_onion_and_port n in
+          try
+	    let (s,sin,sout) = connectonionpeer !Config.socksport onionaddr port in
+	    Some(initialize_conn_2 n s sin sout)
+          with _ -> None
+        with Not_found ->
+          let (ip,port,v6) = extract_ip_and_port n in
+          begin
+	    try
+	      match !Config.socks with
+	      | None ->
+	         let s = connectpeer ip port in
+	         Some (initialize_conn n s)
+	      | Some(4) ->
+	         let (s,sin,sout) = connectpeer_socks4 !Config.socksport ip port in
+	         Some (initialize_conn_2 n s sin sout)
+	      | Some(5) ->
+	         raise (Failure "socks5 is not yet supported")
+	      | Some(z) ->
+	         raise (Failure ("do not know what socks" ^ (string_of_int z) ^ " means"))
+	    with
+	    | RequestRejected ->
+	       log_string (Printf.sprintf "RequestRejected\n");
+	       None
+	    | _ ->
+	       None
+          end
+    end
+  else
+    None
 
 let netlistener l =
+  log_string (Printf.sprintf "netlistener thread %d begin %f\n" (Thread.id (Thread.self())) (Unix.gettimeofday()));
   while true do
     try
+      Thread.delay 10.0;
+      log_string (Printf.sprintf "netlistener thread %d waiting to accept %f\n" (Thread.id (Thread.self())) (Unix.gettimeofday()));
       let (s,a) = Unix.accept l in
       let ra =
 	begin
@@ -994,8 +1088,10 @@ let netlistener l =
   done
 
 let onionlistener l =
+  log_string (Printf.sprintf "onionlistener thread %d begin %f\n" (Thread.id (Thread.self())) (Unix.gettimeofday()));
   while true do
     try
+      log_string (Printf.sprintf "onionlistener thread %d waiting to accept %f\n" (Thread.id (Thread.self())) (Unix.gettimeofday()));
       let (s,a) = Unix.accept l in
       let ra =
 	begin
@@ -1016,8 +1112,10 @@ let onionlistener l =
   done
 
 let netseeker_loop () =
+  log_string (Printf.sprintf "netseeker_loop thread %d begin %f\n" (Thread.id (Thread.self())) (Unix.gettimeofday()));
   while true do
     try
+      log_string (Printf.sprintf "netseeker_loop thread %d loop %f\n" (Thread.id (Thread.self())) (Unix.gettimeofday()));
       remove_dead_conns();
       if List.length !netconns < max 1 (!Config.maxconns lsr 1) then
 	begin
@@ -1069,9 +1167,11 @@ let netseeker_loop () =
       if !newpeers = [] || List.length !netconns = !Config.maxconns then
 	Thread.delay 600.
       else
-	Thread.delay 20.
+	Thread.delay 60.
     with
-    | _ -> ()
+    | exn ->
+       log_string (Printf.sprintf "netseeker_loop thread %d exception %s\n" (Thread.id (Thread.self())) (Printexc.to_string exn));
+       Thread.delay 60.
   done
 
 let netseeker1 () =
@@ -1086,7 +1186,7 @@ let netseeker1 () =
           while true do
             let n = input_line inc in
             log_string (Printf.sprintf "adding peer %s\n" n);
-	    Hashtbl.add knownpeers n currtm
+	    Hashtbl.replace knownpeers n currtm
           done
         with exc ->
           ignore (Unix.close_process_full (inc,outc,errc))
@@ -1094,14 +1194,17 @@ let netseeker1 () =
     end
 
 let netseeker2 () =
+  let alreadytried : (string,unit) Hashtbl.t = Hashtbl.create 10 in
+  List.iter
+    (fun (_,_,(_,_,_,gcs)) -> Hashtbl.add alreadytried (peeraddr !gcs) ())
+    !netconns;
   Hashtbl.iter
     (fun n oldtm ->
       try (*** don't try to connect to the same peer twice ***)
-	ignore (List.find
-		  (fun (_,_,(_,_,_,gcs)) -> peeraddr !gcs = n)
-		  !netconns)
-      with Not_found -> ignore (tryconnectpeer n)
-    )
+        Hashtbl.find alreadytried n
+      with Not_found ->
+        Hashtbl.add alreadytried n ();
+        ignore (tryconnectpeer n))
     knownpeers
 
 let netseeker () =
@@ -1165,12 +1268,12 @@ let find_and_send_requestdata mt h =
             if not cs.banned && Hashtbl.mem cs.rinv (inv_of_msgtype mt,h) then
 	      if recently_requested (i,h) tm cs.invreq then
 		begin
-		  log_string (Printf.sprintf "already recently sent request %s %s from %s\n" (string_of_msgtype mt) (hashval_hexstring h) cs.addrfrom);
+                  (*		  log_string (Printf.sprintf "already recently sent request %s %s from %s\n" (string_of_msgtype mt) (hashval_hexstring h) cs.addrfrom); *)
 		  alrreq := true
 		end
 	      else
 		begin
-		  log_string (Printf.sprintf "sending request %s %s to %s\n" (string_of_msgtype mt) (hashval_hexstring h) cs.addrfrom);
+                  (*		  log_string (Printf.sprintf "sending request %s %s to %s\n" (string_of_msgtype mt) (hashval_hexstring h) cs.addrfrom); *)
 		  let _ (* mh *) = queue_msg cs mt ms in
 		  Hashtbl.replace cs.invreq (i,h) tm;
 		  raise Exit
@@ -1189,12 +1292,12 @@ let broadcast_inv tosend =
       c := seo_prod seo_int8 seo_hashval seosb (i,h) !c)
     tosend;
   let invmsgstr = Buffer.contents invmsg in
-  log_string (Printf.sprintf "broadcast_inv Created invmsgstr %s\n" (string_hexstring invmsgstr));
+  (*  log_string (Printf.sprintf "broadcast_inv Created invmsgstr %s\n" (string_hexstring invmsgstr)); *)
   List.iter
     (fun (lth,sth,(fd,sin,sout,gcs)) ->
       match !gcs with
       | Some(cs) ->
-	  log_string (Printf.sprintf "broadcast_inv sending to %s\n" cs.addrfrom);
+         (*	  log_string (Printf.sprintf "broadcast_inv sending to %s\n" cs.addrfrom); *)
 	  ignore (queue_msg cs Inv invmsgstr)
       | None -> ())
     !netconns;;

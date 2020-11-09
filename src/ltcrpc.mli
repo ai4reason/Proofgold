@@ -97,8 +97,7 @@ val ltc_best_chaintips : unit -> hashval list list
 
 val find_pfg_header_ltc_burn : hashval -> poburn * hashval option
 
-val ltc_old_sync : unit -> unit
-
 val retractltcblock : string -> unit
 
 val ltc_forward_from_block : string -> unit
+val ltc_forward_from_oldest : unit -> unit

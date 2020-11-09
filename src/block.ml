@@ -325,8 +325,8 @@ let valid_blockheader_allbutsignat blkh csm tinfo bhd (aid,bday,obl,u) lmedtm bu
     vbcv false (fun c -> Printf.fprintf c "Block header has timestamp %Ld after median litecoin time %Ld\n" bhd.timestamp lmedtm)
   else if not (bhd.stakeassetid = aid) then
     vbcv false (fun c -> Printf.fprintf c "Block header asset id mismatch. Found %s. Expected %s.\n" (hashval_hexstring bhd.stakeassetid) (hashval_hexstring aid))
-  else if blkh >= 730L && bday = 0L then (** additional constraint to avoid potential bugs when staking with airdrop assets whose value has halved at least once **)
-    vbcv false (fun c -> Printf.fprintf c "Airdrop assets cannot be used for staking after height 730.\n")
+  else if blkh >= 730L && bday = 0L then (** additional constraint to avoid potential bugs when staking with fake pure burn assets **)
+    vbcv false (fun c -> Printf.fprintf c "Blocks cannot be created by pure burns after height 730.\n")
   else
     match u with
     | Currency(v) ->
@@ -396,7 +396,7 @@ let valid_blockheader blkh csm tinfo (bhd,bhs) lmedtm burned txid1 vout1 =
     | None ->
        valid_blockheader_a blkh csm tinfo (bhd,bhs) (blockheader_stakeasset bhd) lmedtm burned
     | Some(txidh,vout) ->
-       if blkh > 5000L then (** pure burns only allowed in the first 5000 blocks, roughly half a year **)
+       if blkh > 730L then (** pure burns only allowed in the first 730 blocks, roughly a month **)
          false
        else if (txidh = txid1) && (vout = vout1) then
          let aid = hashtag txidh vout in

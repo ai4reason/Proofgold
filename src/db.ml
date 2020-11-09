@@ -14,6 +14,61 @@ let dbdir = ref ""
 let remove_file_if_exists f =
   if Sys.file_exists f then Sys.remove f
 
+let bootstrapdb dir =
+  let fullcall = !Config.curl ^ " https://proofgold.org/bootstrap/dua" in
+  let rec bootstrapdb_p d p fullp =
+    let n = String.length p in
+    let i = ref 0 in
+    while (!i < n && not (p.[!i] = '/')) do
+      incr i
+    done;
+    if (!i < n) then
+      let d2 = Filename.concat d (String.sub p 0 !i) in
+      if Sys.file_exists d2 then
+        if Sys.is_directory d2 then
+          bootstrapdb_p d2 (String.sub p (!i+1) (n - (!i+1))) fullp
+        else
+          raise (Failure (d2 ^ " is a file not a directory"))
+      else
+        begin
+          Unix.mkdir d2 0b111111000;
+          bootstrapdb_p d2 (String.sub p (!i+1) (n - (!i+1))) fullp
+        end
+    else
+      let fn = Filename.concat d p in
+      if not (Sys.file_exists fn) then
+        let f = open_out_bin fn in
+        let fullcall = Printf.sprintf "%s https://proofgold.org/bootstrap/db/%s" !Config.curl fullp in
+        let (inc,outc,errc) = Unix.open_process_full fullcall [| |] in
+        try
+          set_binary_mode_in inc true;
+          while true do
+            let by = input_byte inc in
+            output_byte f by
+          done
+        with _ ->
+          ignore (Unix.close_process_full (inc,outc,errc));
+          close_out f
+  in
+  let bootstrapdb_l l =
+    let n = String.length l in
+    let i = ref 0 in
+    while (!i < n && not (l.[!i] = '\t')) do
+      incr i
+    done;
+    if (!i+4 < n && String.sub l (!i+1) 3 = "db/") then
+      let p = String.sub l (!i+4) (n - (!i+4)) in
+      bootstrapdb_p dir p p
+  in
+  let (inc,outc,errc) = Unix.open_process_full fullcall [| |] in
+  try
+    while true do
+      let l = input_line inc in
+      bootstrapdb_l l
+    done
+  with _ ->
+    ignore (Unix.close_process_full (inc,outc,errc))
+
 let dbconfig dir =
   dbdir := dir;
   if Sys.file_exists dir then
@@ -23,7 +78,8 @@ let dbconfig dir =
       raise (Failure (dir ^ " is a file not a directory"))
   else
     begin
-      Unix.mkdir dir 0b111111000
+      Unix.mkdir dir 0b111111000;
+      if not (!Config.independentbootstrap) then bootstrapdb dir
     end
 
 let load_index d =
@@ -287,7 +343,9 @@ let file_length f =
     0
 
 let rec dbfind_next_space_a d i k =
-  if count_index d < max_entries_in_dir then
+  if Sys.file_exists (Filename.concat d "index2") then (** this indicates that something probably went wrong writing into data in this subdir, so skip to one below **)
+    dbfind_next_space_b d i k
+  else if count_index d < max_entries_in_dir then
     let dd = Filename.concat d "data" in
     let p = file_length dd in
     if p < stop_after_byte then
@@ -524,7 +582,14 @@ module Dbbasic : dbtype = functor (M:sig type t val basedir : string val seival 
 	let indl2 = List.merge (fun (h',p') (k',q') -> compare h' k') (List.rev indl) [(k,p)] in
 	withlock
 	  (fun () ->
-	    let ch = open_out_bin (Filename.concat d' "index") in
+	    let ch = open_out_gen [Open_append;Open_creat;Open_binary] 0b110110000 (Filename.concat d' "data") in
+	    let c = M.seoval v (ch,None) in
+	    seocf c;
+	    close_out ch;
+            let indexfilename1 = Filename.concat d' "index" in
+            let indexfilename2 = Filename.concat d' "index2" in
+            if Sys.file_exists indexfilename1 then Sys.rename indexfilename1 indexfilename2;
+	    let ch = open_out_bin indexfilename1 in
 	    List.iter
 	      (fun (h,q) ->
 		let c = seo_hashval seoc h (ch,None) in
@@ -532,10 +597,7 @@ module Dbbasic : dbtype = functor (M:sig type t val basedir : string val seival 
 		seocf c)
 	      indl2;
 	    close_out ch;
-	    let ch = open_out_gen [Open_append;Open_creat;Open_binary] 0b110110000 (Filename.concat d' "data") in
-	    let c = M.seoval v (ch,None) in
-	    seocf c;
-	    close_out ch)
+            if Sys.file_exists indexfilename2 then Sys.remove indexfilename2)
 
     let dbdelete k =
       try
@@ -645,13 +707,14 @@ module Dbbasic2 : dbtype = functor (M:sig type t val basedir : string val seival
 	let (d',p) = withlock (fun () -> dbfind_next_space M.basedir k) in
 	withlock
 	  (fun () ->
-	    let ch = open_out_gen [Open_append;Open_creat;Open_binary] 0b110110000 (Filename.concat d' "index") in
-	    let c = seo_hashval seoc k (ch,None) in
-	    let c = seo_int32 seoc (Int32.of_int p) c in
-	    seocf c;
-	    close_out ch;
 	    let ch = open_out_gen [Open_append;Open_creat;Open_binary] 0b110110000 (Filename.concat d' "data") in
 	    let c = M.seoval v (ch,None) in
+	    seocf c;
+	    close_out ch;
+            let indexfilename1 = Filename.concat d' "index" in
+	    let ch = open_out_gen [Open_append;Open_creat;Open_binary] 0b110110000 indexfilename1 in
+	    let c = seo_hashval seoc k (ch,None) in
+	    let c = seo_int32 seoc (Int32.of_int p) c in
 	    seocf c;
 	    close_out ch;
 	    Hashtbl.add indextable k (d',p)
@@ -756,13 +819,13 @@ module Dbbasic2keyiter : dbtypekeyiter = functor (M:sig type t val basedir : str
 	let (d',p) = withlock (fun () -> dbfind_next_space M.basedir k) in
 	withlock
 	  (fun () ->
+	    let ch = open_out_gen [Open_append;Open_creat;Open_binary] 0b110110000 (Filename.concat d' "data") in
+	    let c = M.seoval v (ch,None) in
+	    seocf c;
+	    close_out ch;
 	    let ch = open_out_gen [Open_append;Open_creat;Open_binary] 0b110110000 (Filename.concat d' "index") in
 	    let c = seo_hashval seoc k (ch,None) in
 	    let c = seo_int32 seoc (Int32.of_int p) c in
-	    seocf c;
-	    close_out ch;
-	    let ch = open_out_gen [Open_append;Open_creat;Open_binary] 0b110110000 (Filename.concat d' "data") in
-	    let c = M.seoval v (ch,None) in
 	    seocf c;
 	    close_out ch;
 	    Hashtbl.add indextable k (d',p)

@@ -705,8 +705,8 @@ let assets_at_address_in_ledger_json raiseempty alpha par ledgerroot blkh =
     | None -> []
     | Some(lbk,ltx) ->
 	try
-	  let (_,_,_,_,par,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
-	  let (_,_,ledgerroot,_,_) = Hashtbl.find validheadervals (lbk,ltx) in
+	  let (_,_,_,_,par,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
+	  let (_,_,ledgerroot,_,_) = Db_validheadervals.dbget (hashpair lbk ltx) in
 	  handler (fun () -> alpha_hl := Ctre.ctree_addr_cache cache true false alpha (Ctre.CHash(ledgerroot)) None);	
 	  match !alpha_hl with
 	  | (Some(hl),_) ->
@@ -885,8 +885,8 @@ let printassets oc =
 	let (b,cwl) = get_bestblock() in
 	match b with
 	| Some(_,lbk,ltx) ->
-	    let (_,_,_,_,_,_,blkhght) = Hashtbl.find outlinevals (lbk,ltx) in
-	    let (_,_,ledgerroot,_,_) = Hashtbl.find validheadervals (lbk,ltx) in
+	    let (_,_,_,_,_,_,blkhght) = Db_outlinevals.dbget (hashpair lbk ltx) in
+	    let (_,_,ledgerroot,_,_) = Db_validheadervals.dbget (hashpair lbk ltx) in
 	    printassets_in_ledger oc ledgerroot blkhght
 	| None -> ()
       with Not_found -> ()
@@ -2361,7 +2361,7 @@ let query_at_block q pbh ledgerroot blkh =
 	      try
 		match pbh with
 		| Some(_,Poburn(plbk,pltx,_,_,_,_)) ->
-		    let (_,_,_,_,_,_,pblkh) = Hashtbl.find outlinevals (plbk,pltx) in
+		    let (_,_,_,_,_,_,pblkh) = Db_outlinevals.dbget (hashpair plbk pltx) in
 		    Some(Int64.add pblkh 1L)
 		| None -> Some(1L)
 	      with Not_found ->
@@ -2511,9 +2511,9 @@ let query q =
 	let (b,cwl) = get_bestblock() in
 	match b with
 	| Some(_,lbk,ltx) ->
-	    let (bh,lmedtm,burned,(txid1,vout1),_,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
+	    let (bh,lmedtm,burned,(txid1,vout1),_,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
 	    let pbh = Some(bh,Poburn(lbk,ltx,lmedtm,burned,txid1,vout1)) in
-	    let (_,_,ledgerroot,_,_) = Hashtbl.find validheadervals (lbk,ltx) in
+	    let (_,_,ledgerroot,_,_) = Db_validheadervals.dbget (hashpair lbk ltx) in
 	    query_at_block q pbh ledgerroot blkh
 	| None -> JsonObj([("response",JsonStr("no best block found"))])
       with Not_found -> JsonObj([("response",JsonStr("no best block found"))])
@@ -2529,9 +2529,9 @@ let query_blockheight findblkh =
 	begin
 	  try
 	    let rec query_blockheight_search lbk ltx =
-	      let (bh,lmedtm,burned,(txid1,vout1),par,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
+	      let (bh,lmedtm,burned,(txid1,vout1),par,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
 	      if blkh = findblkh then
-		let (_,_,ledgerroot,_,_) = Hashtbl.find validheadervals (lbk,ltx) in
+		let (_,_,ledgerroot,_,_) = Db_validheadervals.dbget (hashpair lbk ltx) in
 		query_at_block (hashval_hexstring bh) (Some(bh,Poburn(lbk,ltx,lmedtm,burned,txid1,vout1))) ledgerroot blkh
 	      else if blkh < findblkh then
 		JsonObj([("response",JsonStr("no block at height " ^ (Int64.to_string findblkh)))])
@@ -2691,41 +2691,6 @@ let rec ctree_tagged_hashes c pl par r =
   | CLeft(c0) -> ctree_tagged_hashes c0 (false::pl) par r
   | CRight(c1) -> ctree_tagged_hashes c1 (true::pl) par r
   | CBin(c0,c1) -> ctree_tagged_hashes c0 (false::pl) par (ctree_tagged_hashes c1 (true::pl) par r)
-
-exception MissingAsset of hashval * bool list
-exception MissingHConsElt of hashval * bool list
-exception MissingCTreeElt of hashval * bool list
-
-let rec verifyhcons (aid,k) pl =
-  if not (DbAsset.dbexists aid) then raise (MissingAsset(aid,pl));
-  match k with
-  | None -> ()
-  | Some(k,_) -> verifyhlist_h k pl
-and verifyhlist_h h pl =
-  try
-    let hc = DbHConsElt.dbget h in
-    verifyhcons hc pl
-  with Not_found ->
-    raise (MissingHConsElt(h,pl))
-
-let rec verifyledger c pl =
-  match c with
-  | CHash(h) -> verifyledger_h h pl
-  | CLeaf(bl,NehHash(h,_)) ->  verifyhlist_h h pl
-  | CLeaf(_,_) -> raise (Failure "Bug: Unexpected ctree elt case of nehhlist other than hash")
-  | CLeft(c0) ->
-      verifyledger c0 (false::pl)
-  | CRight(c1) ->
-      verifyledger c1 (true::pl)
-  | CBin(c0,c1) ->
-      verifyledger c0 (false::pl);
-      verifyledger c1 (true::pl)
-and verifyledger_h h pl =
-  try
-    let c = DbCTreeElt.dbget h in
-    verifyledger c pl
-  with Not_found ->
-    raise (MissingCTreeElt(h,pl))
 
 let report_subtop_subsubtop oc pl =
   let rec r2 sub1 sub2 i bl =
@@ -3140,14 +3105,14 @@ let rec pblockchain_r s lbk ltx m =
   if m > 0 then
     begin
       try
-	let (dbh,lmedtm,burned,(txid1,vout1),par,csm,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
+	let (dbh,lmedtm,burned,(txid1,vout1),par,csm,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
 	begin
 	  match par with
 	  | Some(lbk,ltx) -> pblockchain_r s lbk ltx (m-1)
 	  | None -> ()
 	end;
 	try
-	  let (tar,tm,lr,_,_) = Hashtbl.find validheadervals (lbk,ltx) in
+	  let (tar,tm,lr,_,_) = Db_validheadervals.dbget (hashpair lbk ltx) in
 	  Printf.fprintf s "block %Ld %s (post block ledger %s)\n" blkh (hashval_hexstring dbh) (hashval_hexstring lr);
 	  Printf.fprintf s "Timestamp: %Ld\n" tm;
 	  Printf.fprintf s "Target: %s\n" (string_of_big_int tar);
@@ -3169,7 +3134,7 @@ let pblockchain s n m =
 
 let rec reprocess_blockchain_r s lbk ltx m =
   try
-    let (dbh,lmedtm,burned,(txid1,vout1),par,csm,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
+    let (dbh,lmedtm,burned,(txid1,vout1),par,csm,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
     if blkh > m then
       begin
 	match par with

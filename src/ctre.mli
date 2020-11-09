@@ -159,3 +159,10 @@ val import_ctree_subelts : in_channel -> hashval -> int * int
 val export_ctree_subelts : out_channel -> hashval -> bool list -> unit
 val export_ctree_subtop : out_channel -> hashval -> int -> unit
 val export_ctree_subtop_subsubtop : out_channel -> hashval -> int -> int -> unit
+
+exception MissingAsset of hashval * bool list
+exception MissingHConsElt of hashval * bool list
+exception MissingCTreeElt of hashval * bool list
+                                                                              
+val verifyhlist_h : hashval -> bool list -> unit
+val verifyledger_h : hashval -> bool list -> unit

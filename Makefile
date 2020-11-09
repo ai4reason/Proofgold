@@ -6,16 +6,16 @@ opt: bin/proofgold bin/proofgoldcli
 bytecode: bin/proofgoldbc bin/proofgoldbccli
 
 bin/proofgold: bin/proofgold.cmx bin/json.cmx bin/config.cmx bin/hashaux.cmx bin/sha256.cmx bin/ripemd160.cmx bin/version.cmx bin/utils.cmx bin/ser.cmx bin/hash.cmx bin/htree.cmx bin/db.cmx bin/logic.cmx bin/mathdata.cmx bin/checking.cmx bin/assets.cmx bin/tx.cmx bin/ctre.cmx bin/ctregraft.cmx bin/secp256k1.cmx bin/cryptocurr.cmx bin/signat.cmx bin/ltcrpc.cmx bin/script.cmx bin/block.cmx bin/net.cmx bin/blocktree.cmx bin/setconfig.cmx bin/commands.cmx bin/inputdraft.cmx bin/staking.cmx
-	$(OCAMLOPT) $(OCAMLOPTARGS) -I bin -I +threads -I +zarith -o bin/proofgold unix.cmxa threads.cmxa zarith.cmxa zarithint.cmx json.cmx config.cmx version.cmx utils.cmx ser.cmx hashaux.cmx sha256.cmx ripemd160.cmx hash.cmx htree.cmx net.cmx db.cmx secp256k1.cmx cryptocurr.cmx signat.cmx ltcrpc.cmx script.cmx logic.cmx mathdata.cmx checking.cmx assets.cmx tx.cmx ctre.cmx ctregraft.cmx block.cmx blocktree.cmx setconfig.cmx commands.cmx inputdraft.cmx staking.cmx proofgold.cmx
+	$(OCAMLOPT) $(OCAMLOPTARGS) -I bin -I +threads -I +zarith -o bin/proofgold unix.cmxa threads.cmxa zarith.cmxa zarithint.cmx json.cmx config.cmx version.cmx utils.cmx ser.cmx hashaux.cmx sha256.cmx ripemd160.cmx hash.cmx htree.cmx db.cmx net.cmx secp256k1.cmx cryptocurr.cmx signat.cmx ltcrpc.cmx script.cmx logic.cmx mathdata.cmx checking.cmx assets.cmx tx.cmx ctre.cmx ctregraft.cmx block.cmx blocktree.cmx setconfig.cmx commands.cmx inputdraft.cmx staking.cmx proofgold.cmx
 
 bin/proofgoldcli: bin/proofgoldcli.cmx bin/zarithint.cmx bin/json.cmx bin/config.cmx bin/hashaux.cmx bin/sha256.cmx bin/ripemd160.cmx bin/version.cmx bin/utils.cmx bin/ser.cmx bin/hash.cmx bin/htree.cmx bin/db.cmx bin/logic.cmx bin/mathdata.cmx bin/checking.cmx bin/assets.cmx bin/tx.cmx bin/ctre.cmx bin/ctregraft.cmx bin/secp256k1.cmx bin/cryptocurr.cmx bin/signat.cmx bin/script.cmx bin/block.cmx bin/net.cmx bin/ltcrpc.cmx bin/blocktree.cmx bin/setconfig.cmx bin/commands.cmx bin/inputdraft.cmx bin/staking.cmx
-	$(OCAMLOPT) $(OCAMLOPTARGS) -I bin -I +threads -I +zarith -o bin/proofgoldcli unix.cmxa threads.cmxa zarith.cmxa zarithint.cmx json.cmx config.cmx version.cmx utils.cmx ser.cmx hashaux.cmx sha256.cmx ripemd160.cmx hash.cmx htree.cmx net.cmx db.cmx secp256k1.cmx cryptocurr.cmx signat.cmx ltcrpc.cmx script.cmx logic.cmx mathdata.cmx checking.cmx assets.cmx tx.cmx ctre.cmx ctregraft.cmx block.cmx blocktree.cmx setconfig.cmx commands.cmx inputdraft.cmx staking.cmx proofgoldcli.cmx
+	$(OCAMLOPT) $(OCAMLOPTARGS) -I bin -I +threads -I +zarith -o bin/proofgoldcli unix.cmxa threads.cmxa zarith.cmxa zarithint.cmx json.cmx config.cmx version.cmx utils.cmx ser.cmx hashaux.cmx sha256.cmx ripemd160.cmx hash.cmx htree.cmx db.cmx net.cmx secp256k1.cmx cryptocurr.cmx signat.cmx ltcrpc.cmx script.cmx logic.cmx mathdata.cmx checking.cmx assets.cmx tx.cmx ctre.cmx ctregraft.cmx block.cmx blocktree.cmx setconfig.cmx commands.cmx inputdraft.cmx staking.cmx proofgoldcli.cmx
 
 bin/proofgoldbc: bin/proofgold.cmo bin/zarithint.cmo bin/json.cmo bin/config.cmo bin/hashaux.cmo bin/sha256.cmo bin/ripemd160.cmo bin/version.cmo bin/utils.cmo bin/ser.cmo bin/hash.cmo bin/htree.cmo bin/db.cmo bin/logic.cmo bin/mathdata.cmo bin/checking.cmo bin/assets.cmo bin/tx.cmo bin/ctre.cmo bin/ctregraft.cmo bin/secp256k1.cmo bin/cryptocurr.cmo bin/signat.cmo bin/script.cmo bin/block.cmo bin/net.cmo bin/ltcrpc.cmo bin/blocktree.cmo bin/setconfig.cmo bin/commands.cmo bin/inputdraft.cmo bin/staking.cmo
-	$(OCAMLC) -I bin -I +threads -I +zarith -o bin/proofgoldbc unix.cma threads.cma zarith.cma zarithint.cmo json.cmo config.cmo version.cmo utils.cmo ser.cmo hashaux.cmo sha256.cmo ripemd160.cmo hash.cmo htree.cmo net.cmo db.cmo secp256k1.cmo cryptocurr.cmo signat.cmo ltcrpc.cmo script.cmo logic.cmo mathdata.cmo checking.cmo assets.cmo tx.cmo ctre.cmo ctregraft.cmo block.cmo blocktree.cmo setconfig.cmo commands.cmo inputdraft.cmo staking.cmo proofgold.cmo
+	$(OCAMLC) -I bin -I +threads -I +zarith -o bin/proofgoldbc unix.cma threads.cma zarith.cma zarithint.cmo json.cmo config.cmo version.cmo utils.cmo ser.cmo hashaux.cmo sha256.cmo ripemd160.cmo hash.cmo htree.cmo db.cmo net.cmo secp256k1.cmo cryptocurr.cmo signat.cmo ltcrpc.cmo script.cmo logic.cmo mathdata.cmo checking.cmo assets.cmo tx.cmo ctre.cmo ctregraft.cmo block.cmo blocktree.cmo setconfig.cmo commands.cmo inputdraft.cmo staking.cmo proofgold.cmo
 
 bin/proofgoldbccli: bin/proofgoldcli.cmo bin/zarithint.cmo bin/json.cmo bin/config.cmo bin/hashaux.cmo bin/sha256.cmo bin/ripemd160.cmo bin/version.cmo bin/utils.cmo bin/ser.cmo bin/hash.cmo bin/htree.cmo bin/db.cmo bin/logic.cmo bin/mathdata.cmo bin/checking.cmo bin/assets.cmo bin/tx.cmo bin/ctre.cmo bin/ctregraft.cmo bin/secp256k1.cmo bin/cryptocurr.cmo bin/signat.cmo bin/script.cmo bin/block.cmo bin/net.cmo bin/ltcrpc.cmo bin/blocktree.cmo bin/setconfig.cmo bin/commands.cmo bin/inputdraft.cmo bin/staking.cmo
-	$(OCAMLC) -I bin -I +threads -I +zarith -o bin/proofgoldbccli unix.cma threads.cma zarith.cma zarithint.cmo json.cmo config.cmo version.cmo utils.cmo ser.cmo hashaux.cmo sha256.cmo ripemd160.cmo hash.cmo htree.cmo net.cmo db.cmo secp256k1.cmo cryptocurr.cmo signat.cmo ltcrpc.cmo script.cmo logic.cmo mathdata.cmo checking.cmo assets.cmo tx.cmo ctre.cmo ctregraft.cmo block.cmo blocktree.cmo setconfig.cmo commands.cmo inputdraft.cmo staking.cmo proofgoldcli.cmo
+	$(OCAMLC) -I bin -I +threads -I +zarith -o bin/proofgoldbccli unix.cma threads.cma zarith.cma zarithint.cmo json.cmo config.cmo version.cmo utils.cmo ser.cmo hashaux.cmo sha256.cmo ripemd160.cmo hash.cmo htree.cmo db.cmo net.cmo secp256k1.cmo cryptocurr.cmo signat.cmo ltcrpc.cmo script.cmo logic.cmo mathdata.cmo checking.cmo assets.cmo tx.cmo ctre.cmo ctregraft.cmo block.cmo blocktree.cmo setconfig.cmo commands.cmo inputdraft.cmo staking.cmo proofgoldcli.cmo
 
 bin/version.cmi: src/version.mli
 	$(OCAMLC) -I bin -o bin/version.cmi -c src/version.mli
@@ -92,7 +92,7 @@ bin/block.cmi: src/block.mli bin/hash.cmi bin/logic.cmi bin/mathdata.cmi bin/che
 bin/ltcrpc.cmi: src/ltcrpc.mli bin/hash.cmi bin/sha256.cmi
 	$(OCAMLC) -I bin -I +threads -o bin/ltcrpc.cmi -c src/ltcrpc.mli
 
-bin/net.cmi: src/net.mli bin/hash.cmi bin/zarithint.cmi
+bin/net.cmi: src/net.mli bin/hash.cmi bin/zarithint.cmi bin/db.cmi
 	$(OCAMLC) -I bin -I +zarith -I +threads -o bin/net.cmi -c src/net.mli
 
 bin/blocktree.cmi: src/blocktree.mli bin/hash.cmi bin/signat.cmi bin/tx.cmi bin/ctre.cmi bin/block.cmi bin/net.cmi bin/ltcrpc.cmi bin/mathdata.cmi
@@ -155,7 +155,7 @@ bin/hash.cmx: src/hash.ml bin/hash.cmi bin/hashaux.cmx bin/sha256.cmx bin/ripemd
 bin/htree.cmx: src/htree.ml bin/htree.cmi bin/hash.cmx
 	$(OCAMLOPT) $(OCAMLOPTARGS) -I bin -o bin/htree.cmx -c src/htree.ml
 
-bin/db.cmx: src/db.ml bin/db.cmi bin/ser.cmx bin/hash.cmx bin/config.cmx bin/net.cmx
+bin/db.cmx: src/db.ml bin/db.cmi bin/ser.cmx bin/hash.cmx bin/config.cmx
 	$(OCAMLOPT) $(OCAMLOPTARGS) -I bin -I +threads -o bin/db.cmx -c src/db.ml
 
 bin/logic.cmx: src/logic.ml bin/logic.cmi bin/htree.cmx bin/hash.cmx bin/ser.cmx bin/json.cmx
@@ -182,10 +182,10 @@ bin/ctregraft.cmx: src/ctregraft.ml bin/ctregraft.cmi bin/ser.cmx bin/hash.cmx b
 bin/block.cmx: src/block.ml bin/block.cmi bin/hash.cmx bin/logic.cmx bin/mathdata.cmx bin/checking.cmx bin/assets.cmx bin/signat.cmx bin/tx.cmx bin/ctre.cmx bin/ctregraft.cmx bin/db.cmx bin/net.cmx bin/zarithint.cmx
 	$(OCAMLOPT) $(OCAMLOPTARGS) -I bin -I +threads -I +zarith -o bin/block.cmx -c src/block.ml
 
-bin/ltcrpc.cmx: src/ltcrpc.ml bin/ltcrpc.cmi bin/hash.cmx bin/json.cmx
+bin/ltcrpc.cmx: src/ltcrpc.ml bin/ltcrpc.cmi bin/hash.cmx bin/json.cmx bin/net.cmx bin/db.cmx
 	$(OCAMLOPT) $(OCAMLOPTARGS) -I bin -I +threads -o bin/ltcrpc.cmx -c src/ltcrpc.ml
 
-bin/net.cmx: src/net.ml bin/net.cmi bin/ser.cmx bin/hash.cmx bin/version.cmx bin/utils.cmx bin/zarithint.cmx
+bin/net.cmx: src/net.ml bin/net.cmi bin/ser.cmx bin/hash.cmx bin/version.cmx bin/utils.cmx bin/zarithint.cmx bin/db.cmx
 	$(OCAMLOPT) $(OCAMLOPTARGS) -I bin -I +threads -I +zarith -o bin/net.cmx -c src/net.ml
 
 bin/blocktree.cmx: src/blocktree.ml bin/blocktree.cmi bin/ser.cmx bin/hash.cmx bin/version.cmx bin/utils.cmx bin/db.cmx bin/assets.cmx bin/signat.cmx bin/tx.cmx bin/ctre.cmx bin/block.cmx bin/net.cmx bin/ltcrpc.cmx bin/mathdata.cmx bin/zarithint.cmx
@@ -254,7 +254,7 @@ bin/hash.cmo: src/hash.ml bin/hash.cmi bin/hashaux.cmo bin/sha256.cmo bin/ripemd
 bin/htree.cmo: src/htree.ml bin/htree.cmi bin/hash.cmo
 	$(OCAMLC) -I bin -o bin/htree.cmo -c src/htree.ml
 
-bin/db.cmo: src/db.ml bin/db.cmi bin/ser.cmo bin/hash.cmo bin/config.cmo bin/net.cmo
+bin/db.cmo: src/db.ml bin/db.cmi bin/ser.cmo bin/hash.cmo bin/config.cmo
 	$(OCAMLC) -I bin -I +threads -o bin/db.cmo -c src/db.ml
 
 bin/logic.cmo: src/logic.ml bin/logic.cmi bin/htree.cmo bin/hash.cmo bin/ser.cmo bin/json.cmo
@@ -284,7 +284,7 @@ bin/block.cmo: src/block.ml bin/block.cmi bin/hash.cmo bin/logic.cmo bin/mathdat
 bin/ltcrpc.cmo: src/ltcrpc.ml bin/ltcrpc.cmi bin/hash.cmo bin/json.cmo
 	$(OCAMLC) -I bin -I +threads -o bin/ltcrpc.cmo -c src/ltcrpc.ml
 
-bin/net.cmo: src/net.ml bin/net.cmi bin/ser.cmo bin/hash.cmo bin/version.cmo bin/utils.cmo bin/zarithint.cmo
+bin/net.cmo: src/net.ml bin/net.cmi bin/ser.cmo bin/hash.cmo bin/version.cmo bin/utils.cmo bin/zarithint.cmo bin/db.cmo
 	$(OCAMLC) -I bin -I +threads -I +zarith -o bin/net.cmo -c src/net.ml
 
 bin/blocktree.cmo: src/blocktree.ml bin/blocktree.cmi bin/ser.cmo bin/hash.cmo bin/version.cmo bin/utils.cmo bin/db.cmo bin/assets.cmo bin/signat.cmo bin/tx.cmo bin/ctre.cmo bin/block.cmo bin/net.cmo bin/ltcrpc.cmo bin/mathdata.cmo bin/zarithint.cmo
@@ -309,6 +309,7 @@ bin/proofgoldcli.cmo: src/proofgoldcli.ml bin/setconfig.cmo bin/ltcrpc.cmo bin/z
 	$(OCAMLC) -I bin -I +threads -I +zarith -o bin/proofgoldcli.cmo -c src/proofgoldcli.ml
 
 clean:
+	rm src/config.ml
 	rm bin/*
 
 INSTALLDIR=/usr/local/bin

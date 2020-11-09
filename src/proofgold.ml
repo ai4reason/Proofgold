@@ -40,7 +40,7 @@ let get_ledgerroot b =
   | None -> raise Not_found
   | Some(dbh,lbk,ltx) ->
       try
-	let (_,_,lr,_,_) = Hashtbl.find validheadervals (lbk,ltx) in
+	let (_,_,lr,_,_) = Db_validheadervals.dbget (hashpair lbk ltx) in
 	lr
       with Not_found ->
 	let (bhd,_) = DbBlockHeader.dbget dbh in
@@ -51,7 +51,7 @@ let get_3roots b =
   | None -> raise Not_found
   | Some(dbh,lbk,ltx) ->
       try
-	let (_,_,lr,tr,sr) = Hashtbl.find validheadervals (lbk,ltx) in
+	let (_,_,lr,tr,sr) = Db_validheadervals.dbget (hashpair lbk ltx) in
 	(lr,tr,sr)
       with Not_found ->
 	let (bhd,_) = DbBlockHeader.dbget dbh in
@@ -61,7 +61,7 @@ let lock datadir =
   let lf = Filename.concat datadir "lock" in
   let c = open_out lf in
   close_out c;
-  exitfn := (fun n -> Commands.save_txpool(); Sys.remove lf; exit n);;
+  exitfn := (fun n -> (try Commands.save_txpool(); Sys.remove lf with _ -> ()); exit n);;
 
 let sinceltctime f =
   let snc = Int64.sub (ltc_medtime()) f in
@@ -142,7 +142,7 @@ let initnetwork sout =
     with _ -> ()
   end;
   let efn = !exitfn in
-  exitfn := (fun n -> saveknownpeers(); efn n);
+  exitfn := (fun n -> (try saveknownpeers() with _ -> ()); efn n);
   netseeker ();;
 
 let ltc_listener_th : Thread.t option ref = ref None;;
@@ -150,24 +150,23 @@ let ltc_listener_th : Thread.t option ref = ref None;;
 let ltc_init sout =
   try
     log_string (Printf.sprintf "syncing with ltc\n");
-    ltc_old_sync(); (*** in case the node is far behind, start by syncing up with some historic ltc blocks first ***)
     begin (** if recentltcblocks file was given, then process the ones listed in the file **)
       match !recent_ltc_blocks with
       | None -> ()
       | Some(f) ->
-	  try
-	    let s = open_in f in
-	    try
-	      while true do
-		let l = input_line s in
-		ltc_process_block l
-	      done
-	    with _ -> close_in s
-	  with _ -> ()
+         try
+	   let s = open_in f in
+	   try
+	     while true do
+	       let l = input_line s in
+	       ltc_process_block l
+	     done
+	   with _ -> close_in s
+         with _ -> ()
     end;
     begin (** if forwardfromltcblock was given, then try to sync forward from a given block **)
       match !forward_from_ltc_block with
-      | None -> ()
+      | None -> ltc_forward_from_oldest()
       | Some(h) ->
          ltc_forward_from_block h
     end;
@@ -187,8 +186,10 @@ let ltc_init sout =
     !exitfn 2
 
 let ltc_listener () =
+  log_string (Printf.sprintf "ltc_listener thread %d begin %f\n" (Thread.id (Thread.self())) (Unix.gettimeofday()));
   while true do
     try
+      log_string (Printf.sprintf "ltc_listener thread %d loop %f\n" (Thread.id (Thread.self())) (Unix.gettimeofday()));
       if !ltc_listener_paused then raise Exit;
       let lbh = ltc_getbestblockhash () in
       ltc_process_block lbh;
@@ -198,7 +199,8 @@ let ltc_listener () =
       else
         ensure_sync ();
       Thread.delay 60.0
-    with _ ->
+    with exn ->
+      log_string (Printf.sprintf "ltc_listener thread %d exception %s\n" (Thread.id (Thread.self())) (Printexc.to_string exn));
       Thread.delay 120.0
   done;;
 
@@ -643,8 +645,8 @@ let initialize_commands () =
 	      match get_bestblock_print_warnings oc with
 	      | None -> raise Not_found
 	      | Some(dbh,lbk,ltx) ->
-		  let (_,_,_,_,_,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
-		  let (_,tm,lr,tr,sr) = Hashtbl.find validheadervals (lbk,ltx) in
+		  let (_,_,_,_,_,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
+		  let (_,tm,lr,tr,sr) = Db_validheadervals.dbget (hashpair lbk ltx) in
 		  (blkh,tm,lr,tr,sr)
 	    in
 	    try
@@ -967,7 +969,7 @@ let initialize_commands () =
                  | _ -> ()
                done
              else if (l = "NONE") then
-               Printf.fprintf oc "No messages for %s\n" u
+               Printf.fprintf oc "No messages for %s\nNext time call:\ngetmessages %s %Ld\n" u u currtm
              else
                begin
                  Printf.fprintf oc "Problem trying to get messages.\n%s\n" l;
@@ -1828,8 +1830,8 @@ let initialize_commands () =
 		      match get_bestblock_print_warnings oc with
 		      | None -> Printf.fprintf oc "No blocks yet\n"
 		      | Some(h,lbk,ltx) ->
-			  let (_,_,_,_,_,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
-			  let (_,_,lr,tr,_) = Hashtbl.find validheadervals (lbk,ltx) in
+			  let (_,_,_,_,_,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
+			  let (_,_,lr,tr,_) = Db_validheadervals.dbget (hashpair lbk ltx) in
 			  try
 			    let tht = lookup_thytree tr in
 			    let _ = ottree_lookup tht (Some(thyh)) in
@@ -1854,8 +1856,8 @@ let initialize_commands () =
 	      match get_bestblock_print_warnings oc with
 	      | None -> raise Not_found
 	      | Some(dbh,lbk,ltx) ->
-		  let (_,_,_,_,_,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
-		  let (_,_,lr,tr,sr) = Hashtbl.find validheadervals (lbk,ltx) in
+		  let (_,_,_,_,_,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
+		  let (_,_,lr,tr,sr) = Db_validheadervals.dbget (hashpair lbk ltx) in
 		  (blkh,lr,tr,sr)
 	    in
 	    let tht = lookup_thytree tr in
@@ -1997,8 +1999,8 @@ let initialize_commands () =
 	      match get_bestblock_print_warnings oc with
 	      | None -> raise Not_found
 	      | Some(dbh,lbk,ltx) ->
-		  let (_,_,_,_,_,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
-		  let (_,_,lr,tr,sr) = Hashtbl.find validheadervals (lbk,ltx) in
+		  let (_,_,_,_,_,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
+		  let (_,_,lr,tr,sr) = Db_validheadervals.dbget (hashpair lbk ltx) in
 		  (blkh,lr,tr,sr)
 	    in
 	    let tht = lookup_thytree tr in
@@ -2145,8 +2147,8 @@ let initialize_commands () =
 		      match get_bestblock_print_warnings oc with
 		      | None -> Printf.fprintf oc "No blocks yet\n"
 		      | Some(h,lbk,ltx) ->
-			  let (_,_,_,_,_,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
-			  let (_,_,lr,tr,_) = Hashtbl.find validheadervals (lbk,ltx) in
+			  let (_,_,_,_,_,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
+			  let (_,_,lr,tr,_) = Db_validheadervals.dbget (hashpair lbk ltx) in
 			  try
 			    let tht = lookup_thytree tr in
 			    let _ = ottree_lookup tht (Some(thyh)) in
@@ -2175,6 +2177,10 @@ let initialize_commands () =
 						  let (_,kl) = thy in
 						  List.iter
 						    (fun h ->
+                                                      let pidpure = h in
+				                      let pidthy = hashtag (hashopair2 (Some(thyh)) pidpure) 33l in
+				                      let alphapure = hashval_term_addr pidpure in
+				                      let alphathy = hashval_term_addr pidthy in
 						      let gamma1p =
 							try
 							  Hashtbl.find propownsh h
@@ -2190,8 +2196,15 @@ let initialize_commands () =
 							  Hashtbl.find proprightsh (true,h)
 							with Not_found -> (gamma1p,Some(0L))
 						      in
-						      let h2 = hashtag (hashopair2 (Some(thyh)) h) 33l in
-						      txoutlr := (hashval_term_addr h,(Some(gamma1p,0L,false),OwnsProp(h,gamma2pp,rpp)))::(hashval_term_addr h2,(Some(gamma1p,0L,false),OwnsProp(h2,gamma2tp,rtp)))::!txoutlr)
+                                                      begin
+				                        let hl = ctree_lookup_addr_assets true true (CHash(lr)) (addr_bitseq alphapure) in
+				                        match hlist_lookup_prop_owner true true true pidpure hl with
+                                                        | Some(_,_) -> () (** pure version already owned **)
+				                        | None -> (** pure version not owned yet **)
+						           txoutlr := (alphapure,(Some(gamma1p,0L,false),OwnsProp(pidpure,gamma2pp,rpp)))::!txoutlr
+                                                      end;
+                                                      (** the theory version cannot be previously owned unless the exact theory was already published, in which case the theory should not be republished **)
+                                                      txoutlr := (alphathy,(Some(gamma1p,0L,false),OwnsProp(pidthy,gamma2tp,rtp)))::!txoutlr)
 						    kl;
 						  let esttxbytes = 2000 + stxsize (([],!txoutlr),([],[])) in (** rough overestimate for txin and signatures at 2000 bytes **)
 						  let minfee = Int64.mul (Int64.of_int esttxbytes) !Config.defaulttxfee in
@@ -2232,8 +2245,8 @@ let initialize_commands () =
 	      match get_bestblock_print_warnings oc with
 	      | None -> raise Not_found
 	      | Some(dbh,lbk,ltx) ->
-		  let (_,_,_,_,_,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
-		  let (_,_,lr,tr,sr) = Hashtbl.find validheadervals (lbk,ltx) in
+		  let (_,_,_,_,_,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
+		  let (_,_,lr,tr,sr) = Db_validheadervals.dbget (hashpair lbk ltx) in
 		  (blkh,lr,tr,sr)
 	    in
 	    let tht = lookup_thytree tr in
@@ -2416,8 +2429,8 @@ let initialize_commands () =
 	      match get_bestblock_print_warnings oc with
 	      | None -> raise Not_found
 	      | Some(dbh,lbk,ltx) ->
-		  let (_,_,_,_,_,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
-		  let (_,_,lr,tr,sr) = Hashtbl.find validheadervals (lbk,ltx) in
+		  let (_,_,_,_,_,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
+		  let (_,_,lr,tr,sr) = Db_validheadervals.dbget (hashpair lbk ltx) in
 		  (blkh,lr,tr,sr)
 	    in
 	    let tht = lookup_thytree tr in
@@ -2747,8 +2760,8 @@ let initialize_commands () =
            match get_bestblock_print_warnings oc with
            | None -> Printf.fprintf oc "No blocks yet\n"
            | Some(h,lbk,ltx) ->
-	      let (_,_,_,_,_,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
-	      let (_,_,lr,_,_) = Hashtbl.find validheadervals (lbk,ltx) in
+	      let (_,_,_,_,_,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
+	      let (_,_,lr,_,_) = Db_validheadervals.dbget (hashpair lbk ltx) in
               List.iter
                 (fun (id1,alpha1) ->
                   let hl = ctree_lookup_addr_assets true true (CHash(lr)) (addr_bitseq alpha1) in
@@ -3167,8 +3180,8 @@ let initialize_commands () =
 	  begin
 	    try
 	      let (lbk,ltx) = get_burn k in
-	      let (_,lmedtm,burned,(txid1,vout1),_,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
-	      let (_,_,lr,_,_) = Hashtbl.find validheadervals (lbk,ltx) in
+	      let (_,lmedtm,burned,(txid1,vout1),_,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
+	      let (_,_,lr,_,_) = Db_validheadervals.dbget (hashpair lbk ltx) in
 	      let pbh = Some(k,Poburn(lbk,ltx,lmedtm,burned,txid1,vout1)) in
 	      let j = Commands.query_at_block h pbh lr blkh in
 	      print_jsonval oc j;
@@ -3274,9 +3287,9 @@ let initialize_commands () =
 		Printf.fprintf oc "- %s (blacklisted, presumably invalid) %s %s %Ld %Ld\n" (hashval_hexstring dbh) (hashval_hexstring lbh) (hashval_hexstring ltx) ltm lhght
 	      else if DbInvalidatedBlocks.dbexists dbh then
 		Printf.fprintf oc "- %s (marked invalid) %s %s %Ld %Ld\n" (hashval_hexstring dbh) (hashval_hexstring lbh) (hashval_hexstring ltx) ltm lhght
-	      else if Hashtbl.mem validblockvals (lbh,ltx) then
+	      else if Db_validblockvals.dbexists (hashpair lbh ltx) then
 		Printf.fprintf oc "+ %s %s %s %Ld %Ld\n" (hashval_hexstring dbh) (hashval_hexstring lbh) (hashval_hexstring ltx) ltm lhght
-	      else if Hashtbl.mem validheadervals (lbh,ltx) then
+	      else if Db_validheadervals.dbexists (hashpair lbh ltx) then
 		if DbBlockDelta.dbexists dbh then
 		  Printf.fprintf oc "* %s (have delta, but not fully validated) %s %s %Ld %Ld\n" (hashval_hexstring dbh) (hashval_hexstring lbh) (hashval_hexstring ltx) ltm lhght
 		else
@@ -3446,8 +3459,8 @@ let initialize_commands () =
 	    match get_bestblock_print_warnings oc with
 	    | None -> Printf.fprintf oc "No blocks yet\n"
 	    | Some(h,lbk,ltx) ->
-		let (_,_,_,_,_,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
-		let (tar,tmstmp,ledgerroot,_,_) = Hashtbl.find validheadervals (lbk,ltx) in
+		let (_,_,_,_,_,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
+		let (tar,tmstmp,ledgerroot,_,_) = Db_validheadervals.dbget (hashpair lbk ltx) in
 		let gtm = Unix.gmtime (Int64.to_float tmstmp) in
 		Printf.fprintf oc "Best block %s at height %Ld\n" (hashval_hexstring h) blkh;
 		Printf.fprintf oc "Ledger root: %s\n" (hashval_hexstring ledgerroot);
@@ -3665,7 +3678,7 @@ let initialize_commands () =
                end
            end
 	| Some(dbh,lbk,ltx) ->
-	    let (_,tmstmp,_,_,_) = Hashtbl.find validheadervals (lbk,ltx) in
+	    let (_,tmstmp,_,_,_) = Db_validheadervals.dbget (hashpair lbk ltx) in
 	    Printf.fprintf oc "Trying to stake on top of %s with time stamp %Ld ltc block %s ltc burn tx %s\n" (hashval_hexstring dbh) tmstmp (hashval_hexstring lbk) (hashval_hexstring ltx);
 	    compute_staking_chances (dbh,lbk,ltx) tmstmp (min (Int64.add tmstmp 604800L) (Int64.add nw (Int64.of_int scnds)));
 	    begin
@@ -3726,7 +3739,7 @@ let initialize_commands () =
 	    match n with
 	    | None -> raise (Failure ("could not find block"))
 	    | Some(_,lbk,ltx) ->
-		let (_,_,_,_,_,_,hght) = Hashtbl.find outlinevals (lbk,ltx) in
+		let (_,_,_,_,_,_,hght) = Db_outlinevals.dbget (hashpair lbk ltx) in
 		Commands.printassets_in_ledger oc (hexstring_hashval lr) hght
 	  end
       | _ -> raise BadCommandForm);
@@ -3764,7 +3777,7 @@ let initialize_commands () =
 	  else
 	    raise BadCommandForm
       | _ -> raise BadCommandForm);
-  ac "importendorsement" "importendorsement <address> <address> <signature>" "Import a bitcoin signed endorsement message into the proofgold wallet.\nThis can be used to claim the proofgold airdrop without needing to import bitcoin private keys into the proofgold wallet.\nimportendorsement should be given three arguments: a b s where s is a signature made with the private key for address a endorsing to address b"
+  ac "importendorsement" "importendorsement <address> <address> <signature>" "Import a bitcoin signed endorsement message into the proofgold wallet.\nimportendorsement should be given three arguments: a b s where s is a signature made with the private key for address a endorsing to address b"
     (fun oc al ->
       match al with
       | [a;b;s] -> Commands.importendorsement oc a b s
@@ -3912,8 +3925,8 @@ let initialize_commands () =
 	match get_bestblock_print_warnings oc with
 	| None -> raise (Failure "trouble finding current ledger")
 	| Some(_,lbk,ltx) ->
-	    let (_,_,_,_,_,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
-	    let (_,_,lr,_,_) = Hashtbl.find validheadervals (lbk,ltx) in
+	    let (_,_,_,_,_,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
+	    let (_,_,lr,_,_) = Db_validheadervals.dbget (hashpair lbk ltx) in
 	    (blkh,lr)
       in
       let alpha = pubkey_md160 alphapk alphab in
@@ -4002,8 +4015,8 @@ let initialize_commands () =
 	match get_bestblock_print_warnings oc with
 	| None -> raise (Failure "trouble finding current ledger")
 	| Some(_,lbk,ltx) ->
-	    let (_,_,_,_,_,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
-	    let (_,_,lr,_,_) = Hashtbl.find validheadervals (lbk,ltx) in
+	    let (_,_,_,_,_,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
+	    let (_,_,lr,_,_) = Db_validheadervals.dbget (hashpair lbk ltx) in
 	    (blkh,lr)
       in
       let alpha = pubkey_md160 alphapk alphab in
@@ -4239,7 +4252,7 @@ let initialize_commands () =
 	  end
       | _ -> raise BadCommandForm);
   ac "createatomicswap" "createatomicswap <ltctxid> <pfgaddr> <pfgrefundaddr> <timelock> [json]"
-    "Create a script and corresponding p2sh address for an atomic swap with ltc.\nThe address will be spendable by <pfgaddr> after the given litecoin tx has at least one confirmation.\nThe address will be spendable by <pfgrefundaddr> after <timelock>.\nIf the keyword 'json' is given then the response is given in json format.\nThe intended use is that Alice has some X Proofgold bars that Bob will pay Y litecoins for.\nBob has his litecoins in segwit addresses. Bob creates an unsigned litecoin tx sending Y litecoins to Alice.\nAlice verifies Bob's litecoin tx and notes the txid.\nAlice then uses createatomicswap with this litecoin txid, Bob's Proofgold address,\na refund address for Alice and a timelock in case Bob does not sign and publish the litecoin tx.\nAlice sends X Proofgold bars to the created p2sh address.\nIf Bob signs and publishes the litecoin tx and it confirms before the timelock,\n Bob will be able to spend the Proofgold bars to an address only he controls.\nIf the litecoin tx is not confirmed before the timelock,\nAlice can recover the funds by spending from the p2sh address after the timelock passes."
+    "Create a script and corresponding p2sh address for an atomic swap with ltc.\nThe address will be spendable by <pfgaddr> after the given litecoin tx has at least one confirmation.\nThe address will be spendable by <pfgrefundaddr> after <timelock>.\nIf the keyword 'json' is given then the response is given in json format.\nThe intended use is that Alice has some X Proofgold bars that Bob will pay Y litecoins for.\nBob has his litecoins in a segwit addresses. Bob creates an unsigned litecoin tx sending Y litecoins to Alice.\nAlice verifies Bob's litecoin tx and notes the txid.\nAlice then uses createatomicswap with this litecoin txid, Bob's Proofgold address,\na refund address for Alice and a timelock in case Bob does not sign and publish the litecoin tx.\nAlice sends X Proofgold bars to the created p2sh address.\nIf Bob signs and publishes the litecoin tx and it confirms before the timelock,\n Bob will be able to spend the Proofgold bars to an address only he controls.\nIf the litecoin tx is not confirmed before the timelock,\nAlice can recover the funds by spending from the p2sh address after the timelock passes."
     (fun oc al ->
       let (ltx,alpha,beta,tmlock,jb) =
         match al with
@@ -4334,8 +4347,8 @@ let initialize_commands () =
 		    match get_bestblock_print_warnings oc with
 		    | None -> raise Not_found
 		    | Some(_,lbk,ltx) ->
-			let (_,_,_,_,_,_,blkhght) = Hashtbl.find outlinevals (lbk,ltx) in
-			let (_,_,lr,_,_) = Hashtbl.find validheadervals (lbk,ltx) in
+			let (_,_,_,_,_,_,blkhght) = Db_outlinevals.dbget (hashpair lbk ltx) in
+			let (_,_,lr,_,_) = Db_validheadervals.dbget (hashpair lbk ltx) in
 			(blkhght,lr)
 		  with Not_found ->
 		    raise (Failure("Could not find ledger root"))
@@ -4510,9 +4523,9 @@ let initialize_commands () =
 	    | None -> Printf.fprintf oc "Cannot find best block\n"
 	    | Some(dbh,lbk,ltx) ->
 		try
-		  let (_,_,_,_,_,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
+		  let (_,_,_,_,_,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
 		  try
-		    let (_,tm,lr,_,_) = Hashtbl.find validheadervals (lbk,ltx) in
+		    let (_,tm,lr,_,_) = Db_validheadervals.dbget (hashpair lbk ltx) in
 		    Commands.savetxtopool blkh tm lr s
 		  with Not_found ->
 		    let (bhd,_) = DbBlockHeader.dbget dbh in
@@ -4532,8 +4545,8 @@ let initialize_commands () =
 	    | None -> Printf.fprintf oc "Cannot find best block.\n"
 	    | Some(dbh,lbk,ltx) ->
 		try
-		  let (_,_,_,_,_,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
-		  let (_,tm,lr,tr,sr) = Hashtbl.find validheadervals (lbk,ltx) in
+		  let (_,_,_,_,_,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
+		  let (_,tm,lr,tr,sr) = Db_validheadervals.dbget (hashpair lbk ltx) in
 		  Commands.sendtx oc (Int64.add 1L blkh) tm tr sr lr s
 		with Not_found ->
 		  Printf.fprintf oc "Cannot find block height for best block %s\n" (hashval_hexstring dbh)
@@ -4548,8 +4561,8 @@ let initialize_commands () =
 	    | None -> Printf.fprintf oc "Cannot find best block.\n"
 	    | Some(dbh,lbk,ltx) ->
 		try
-		  let (_,_,_,_,_,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
-		  let (_,tm,lr,tr,sr) = Hashtbl.find validheadervals (lbk,ltx) in
+		  let (_,_,_,_,_,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
+		  let (_,tm,lr,tr,sr) = Db_validheadervals.dbget (hashpair lbk ltx) in
 		  let c = open_in_bin s in
 		  let (stau,_) = Tx.sei_stx seic (c,None) in
 		  let txbytes = pos_in c in
@@ -4572,9 +4585,9 @@ let initialize_commands () =
 	    | None -> Printf.fprintf oc "Cannot determine best block\n"
 	    | Some(dbh,lbk,ltx) ->
 		try
-		  let (_,_,_,_,_,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
+		  let (_,_,_,_,_,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
 		  try
-		    let (_,tm,lr,tr,sr) = Hashtbl.find validheadervals (lbk,ltx) in
+		    let (_,tm,lr,tr,sr) = Db_validheadervals.dbget (hashpair lbk ltx) in
 		    try
 		      Commands.validatetx oc (Int64.add 1L blkh) tm tr sr lr s
 		    with exn ->
@@ -4595,9 +4608,9 @@ let initialize_commands () =
 	    | None -> Printf.fprintf oc "Cannot determine best block\n"
 	    | Some(dbh,lbk,ltx) ->
 		try
-		  let (_,_,_,_,_,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
+		  let (_,_,_,_,_,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
 		  try
-		    let (_,tm,lr,tr,sr) = Hashtbl.find validheadervals (lbk,ltx) in
+		    let (_,tm,lr,tr,sr) = Db_validheadervals.dbget (hashpair lbk ltx) in
 		    try
 		      let c = open_in_bin s in
 		      let (stau,_) = Tx.sei_stx seic (c,None) in
@@ -4625,9 +4638,9 @@ let initialize_commands () =
 	    | None -> Printf.fprintf oc "Cannot determine best block\n"
 	    | Some(dbh,lbk,ltx) ->
 		try
-		  let (_,_,_,_,_,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
+		  let (_,_,_,_,_,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
 		  try
-		    let (_,tm,lr,tr,sr) = Hashtbl.find validheadervals (lbk,ltx) in
+		    let (_,tm,lr,tr,sr) = Db_validheadervals.dbget (hashpair lbk ltx) in
 		    try
 		      let c = open_in_bin s in
 		      let staur = ref [] in
@@ -4810,7 +4823,7 @@ let initialize_commands () =
       | None -> Printf.fprintf oc "Cannot determine best block\n"
       | Some(h,lbk,ltx) ->
 	  try
-	    let (_,_,_,_,_,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
+	    let (_,_,_,_,_,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
 	    try
 	      let lr = get_ledgerroot best in
 	      print_jsonval oc (JsonObj([("height",JsonNum(Int64.to_string blkh));("block",JsonStr(hashval_hexstring h));("ledgerroot",JsonStr(hashval_hexstring lr))]))
@@ -4825,7 +4838,7 @@ let initialize_commands () =
       | None -> Printf.fprintf oc "Cannot determine best block\n"
       | Some(h,lbk,ltx) ->
 	  try
-	    let (_,_,_,_,_,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
+	    let (_,_,_,_,_,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
 	    try
 	      let lr = get_ledgerroot best in
 	      Printf.fprintf oc "Height: %Ld\nBlock hash: %s\nLedger root: %s\n" (Int64.sub blkh 1L) (hashval_hexstring h) (hashval_hexstring lr)
@@ -4840,9 +4853,9 @@ let initialize_commands () =
       | None -> Printf.fprintf oc "Cannot determine best block\n"
       | Some(h,lbk,ltx) ->
 	  try
-	    let (_,_,_,_,_,_,blkh) = Hashtbl.find outlinevals (lbk,ltx) in
+	    let (_,_,_,_,_,_,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
 	    try
-	      let (tar,_,_,_,_) = Hashtbl.find validheadervals (lbk,ltx) in
+	      let (tar,_,_,_,_) = Db_validheadervals.dbget (hashpair lbk ltx) in
 	      Printf.fprintf oc "Current target (for block at height %Ld): %s\n" blkh (string_of_big_int tar)
 	    with Not_found ->
 	      Printf.fprintf oc "Cannot determine information about best block %s at height %Ld\n" (hashval_hexstring h) blkh
@@ -4864,20 +4877,7 @@ let initialize_commands () =
     (fun oc al ->
       match al with
       | [h] -> reprocessblock oc (hexstring_hashval h)
-      | _ -> raise (Failure "reprocessblock <blockid>"));
-  ac "outlinevals" "outlinevals" "Print information from outlinevals hash table recording ltc burns."
-    (fun oc al ->
-      Hashtbl.iter
-        (fun (lbk,ltx) v ->
-          Printf.fprintf oc "%s %s:\n" (hashval_hexstring lbk) (hashval_hexstring ltx);
-          let (pbk,medtm,burned,(txid1,vout1),prev,csm,hght) = v in
-          Printf.fprintf oc " pfg block %s\n median time %Ld\n burned %Ld\n txid1 %s\n vout1 %ld\n csm %s\n hght %Ld\n" (hashval_hexstring pbk) medtm burned (hashval_hexstring txid1) vout1 (hashval_hexstring csm) hght;
-          match prev with
-          | None -> Printf.fprintf oc " genesis\n";
-          | Some(plbk,pltx) ->
-             Printf.fprintf oc " prev %s %s\n" (hashval_hexstring plbk) (hashval_hexstring pltx))
-        outlinevals;
-      flush oc);;
+      | _ -> raise (Failure "reprocessblock <blockid>"));;
 
 let rec parse_command_r l i n =
   if i < n then
@@ -5036,6 +5036,11 @@ let initialize () =
     DbLtcPfgStatus.dbinit();
     DbLtcBurnTx.dbinit();
     DbLtcBlock.dbinit();
+    Db_outlinevals.dbinit();
+    Db_validheadervals.dbinit();
+    Db_validblockvals.dbinit();
+    Db_outlinesucc.dbinit();
+    Db_blockburns.dbinit();
     openlog(); (*** Don't open the log until the config vars are set, so if we know whether or not it's testnet. ***)
     init_ledger();
     if not !Config.daemon then (Printf.printf "Initialized.\n"; flush stdout);
@@ -5397,7 +5402,7 @@ let initialize () =
     Printf.fprintf sout "Loading wallet\n"; flush sout;
     Commands.load_wallet();
     let efn = !exitfn in
-    exitfn := (fun n -> Commands.save_wallet(); efn n);
+    exitfn := (fun n -> (try Commands.save_wallet() with _ -> ()); efn n);
     Printf.fprintf sout "Loading txpool\n"; flush sout;
     Commands.load_txpool();
     (*** We next compute a nonce for the node to prevent self conns; it doesn't need to be cryptographically secure ***)

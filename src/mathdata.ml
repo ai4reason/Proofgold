@@ -567,7 +567,7 @@ let rec print_trm ctx sgn t thy =
     printlist (fst sgn);
       Printf.printf "\n";
       Printf.printf "(TmH %s)" (hashval_hexstring h)
-  | Prim i -> Printf.printf "(DB %d %d )" (List.length thy) i
+  | Prim i -> Printf.printf "(Prim %d %d )" (List.length thy) i
   | Ap (t1, t2) -> (Printf.printf "ap "; print_trm ctx sgn t1 thy; print_trm ctx sgn t2 thy)
   | Lam (a1, t1) -> (Printf.printf "lam "; print_tp a1 (List.length thy); print_trm ctx sgn t1 thy)
   | Imp (t1, t2) -> (Printf.printf "imp "; print_trm ctx sgn t1 thy; print_trm ctx sgn t2 thy)
