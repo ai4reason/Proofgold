@@ -981,7 +981,19 @@ let rec save_ctree_elements_a tr i pl =
 	(CHash(r),r)
       end
     else (*** if it isn't an element (presumably because it's only approximating an element) then return the hash root only ***)
-      (CHash(r),r)
+      begin
+        match tre with
+        | CHash(r2) when r2 = r -> (CHash(r),r)
+        | _ ->
+           if !Config.fullnode then (** if this should be a full node, then something has gone wrong; quit **)
+             begin
+               Utils.log_string (Printf.sprintf "Something has gone wrong.\nDo not have ctree element with root %s\nSince the node is a full node, this should be impossible.\nQuitting.\nThe commands verifyfullledger and reprocessblockchain may fix this problem.\n" (hashval_hexstring r));
+               !Utils.exitfn 2;
+               (CHash(r),r)
+             end
+           else
+             (CHash(r),r)
+      end
     
 let save_ctree_elements tr =
   let (tre,r) = save_ctree_elements_a tr 0 [] in

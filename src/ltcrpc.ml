@@ -1117,5 +1117,25 @@ let rec ltc_forward_from_oldest () =
       close_in f;
       ltc_forward_from_oldest_possible()
   else
-    ltc_forward_from_oldest_possible()
-
+    begin
+      try
+        if !Config.independentbootstrap then
+          raise Exit
+        else
+          begin
+            let fullcall = !Config.curl ^ " https://proofgold.org/bootstrap/lastltcblock" in
+            let (inc,outc,errc) = Unix.open_process_full fullcall [| |] in
+            try
+              let l = input_line inc in
+              ignore (Unix.close_process_full (inc,outc,errc));
+              if String.length l = 64 then
+                ltc_forward_from_block l
+              else
+                raise Exit
+            with _ ->
+              ignore (Unix.close_process_full (inc,outc,errc));
+              raise Exit
+          end
+      with Exit ->
+        ltc_forward_from_oldest_possible()
+    end

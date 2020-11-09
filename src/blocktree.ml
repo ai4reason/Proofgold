@@ -305,7 +305,7 @@ let process_header sout validate forw dbp (lbh,ltxh) h (bhd,bhs) currhght csm ta
 	    begin
 	      Db_validheadervals.dbput (hashpair lbh ltxh) (bhd.tinfo,bhd.timestamp,bhd.newledgerroot,bhd.newtheoryroot,bhd.newsignaroot);
               broadcast_inv [(int_of_msgtype Headers,h)];
-	      if not (DbBlockDelta.dbexists h) then missingdeltas := List.merge (fun (i,_) (j,_) -> compare i j) [(currhght,h)] !missingdeltas;
+	      if not (DbBlockDelta.dbexists h) then (if not (List.exists (fun (_,k) -> k = h) !missingdeltas) then missingdeltas := List.merge (fun (i,_) (j,_) -> compare i j) [(currhght,h)] !missingdeltas);
 	      if dbp then
 	        begin
 	          DbBlockHeader.dbput h (bhd,bhs);
@@ -339,7 +339,7 @@ let process_header sout validate forw dbp (lbh,ltxh) h (bhd,bhs) currhght csm ta
   else
     begin
       Db_validheadervals.dbput (hashpair lbh ltxh) (bhd.tinfo,bhd.timestamp,bhd.newledgerroot,bhd.newtheoryroot,bhd.newsignaroot);
-      if not (DbBlockDelta.dbexists h) then missingdeltas := List.merge (fun (i,_) (j,_) -> compare i j) [(currhght,h)] !missingdeltas;
+      if not (DbBlockDelta.dbexists h) then if not (List.exists (fun (_,k) -> k = h) !missingdeltas) then missingdeltas := List.merge (fun (i,_) (j,_) -> compare i j) [(currhght,h)] !missingdeltas;
     end
 
 (*** this is for saving the new ctree elements in the database ***)
@@ -363,10 +363,10 @@ let rec process_delta_ctree h blkhght blk =
                      let pblkd = DbBlockDelta.dbget ph in
                      process_delta_ctree ph pblkhght (pblkh,pblkd)
                    with Not_found ->
-                     missingdeltas := List.merge (fun (i,_) (j,_) -> compare i j) [(pblkhght,ph)] !missingdeltas;
+                     if not (List.exists (fun (_,k) -> k = ph) !missingdeltas) then missingdeltas := List.merge (fun (i,_) (j,_) -> compare i j) [(pblkhght,ph)] !missingdeltas;
                      raise Exit
                  with Not_found ->
-                   missingheaders := List.merge (fun (i,_) (j,_) -> compare i j) [(pblkhght,ph)] !missingheaders;
+                   if not (List.exists (fun (_,k) -> k = ph) !missingheaders) then missingheaders := List.merge (fun (i,_) (j,_) -> compare i j) [(pblkhght,ph)] !missingheaders;
                    raise Exit
       end;
     List.iter
@@ -457,7 +457,9 @@ let rec process_delta sout validate forw dbp (lbh,ltxh) h ((bhd,bhs),bd) thtr th
             end
         else
           begin
-            log_string (Printf.sprintf "Refusing to process delta (%Ld) %s since do not know header valid.\n" currhght (hashval_hexstring h))
+            log_string (Printf.sprintf "Refusing to process delta (%Ld) %s since do not know header valid.\n" currhght (hashval_hexstring h));
+            process_header sout validate forw dbp (lbh,ltxh) h (bhd,bhs) currhght csm tar lmedtm burned txid1 vout1;
+            if Db_validheadervals.dbexists lh then process_delta sout validate forw dbp (lbh,ltxh) h ((bhd,bhs),bd) thtr tht sgtr sgt currhght csm tar lmedtm burned txid1 vout1
           end
     end
   else
@@ -589,6 +591,8 @@ let initialize_pfg_from_ltc sout lblkh =
       DbInvalidatedBlocks.dbdelete h;
       DbBlacklist.dbdelete h)
     !Config.validatedblocks;
+  let missingh : (hashval,unit) Hashtbl.t = Hashtbl.create 1000 in
+  let missingd : (hashval,unit) Hashtbl.t = Hashtbl.create 1000 in
   let liveblocks : (hashval,unit) Hashtbl.t = Hashtbl.create 1000 in
   let liveblocks2 : (hashval * hashval,unit) Hashtbl.t = Hashtbl.create 1000 in
   let ltx_lblk : (hashval,hashval) Hashtbl.t = Hashtbl.create 1000 in
@@ -706,8 +710,9 @@ let initialize_pfg_from_ltc sout lblkh =
 					     process_header sout (Hashtbl.mem recentheaders dnxt) false false (lbh,ltx) dnxt (bhd,bhs) currhght csm tar lmedtm burned txid1 vout1
 					 end
 				     with Not_found -> (*** an ancestor header was not validated/is missing ***)
-					   if not (DbBlockHeader.dbexists dnxt) then
+					   if not (Hashtbl.mem missingh dnxt) && not (DbBlockHeader.dbexists dnxt) then
                                              begin
+                                               Hashtbl.add missingh dnxt ();
                                                missingheaders := List.merge (fun (i,_) (j,_) -> compare i j) [(currhght,dnxt)] !missingheaders
                                              end
 				   end
@@ -811,7 +816,21 @@ let initialize_pfg_from_ltc sout lblkh =
 		 List.iter
 		   (fun (dbh,lbh,ltx,_,_) ->
                      let lh = hashpair lbh ltx in
-                     if not (Db_outlinevals.dbexists lh && Db_validheadervals.dbexists lh && Db_validblockvals.dbexists lh) then callwithprev := true)
+                     try
+                       let (_,_,_,(_,_),_,_,hght) = Db_outlinevals.dbget lh in
+                       if not (Hashtbl.mem missingh dbh) && not (DbBlockHeader.dbexists dbh) then
+                         begin
+                           Hashtbl.add missingh dbh ();
+                           missingheaders := List.merge (fun (i,_) (j,_) -> compare i j) [(hght,dbh)] !missingheaders
+                         end;
+                       if not (Hashtbl.mem missingd dbh) && not (DbBlockDelta.dbexists dbh) then
+                         begin
+                           Hashtbl.add missingd dbh ();
+                           missingdeltas := List.merge (fun (i,_) (j,_) -> compare i j) [(hght,dbh)] !missingdeltas
+                         end;
+                     with
+                     | Not_found ->
+                        if not (Db_validheadervals.dbexists lh && Db_validblockvals.dbexists lh) then callwithprev := true)
 		   bdl)
 	       bds;
 	     try
@@ -1306,12 +1325,14 @@ Hashtbl.add msgtype_handler Blockdelta
 		     let tht = lookup_thytree thtr in
 		     let sgt = lookup_sigtree sgtr in
 		     process_delta !Utils.log true true true (lbk,ltx) h (bh,bd) thtr tht sgtr sgt currhght csm tar lmedtm burned txid1 vout1
-		   with Not_found ->
+		   with
+                   | Not_found ->
 		     Hashtbl.add delayed_deltas (lbk,ltx)
 		       (fun thtr sgtr tar ->
 			 let tht = lookup_thytree thtr in
 			 let sgt = lookup_sigtree sgtr in
 			 process_delta !Utils.log true true true (lbk,ltx) h (bh,bd) thtr tht sgtr sgt currhght csm tar lmedtm burned txid1 vout1)
+                   | e -> raise e
 	      end
 	  end
       in
