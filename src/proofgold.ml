@@ -193,6 +193,10 @@ let ltc_listener () =
       let lbh = ltc_getbestblockhash () in
       ltc_process_block lbh;
       ltc_bestblock := hexstring_hashval lbh;
+      if !netconns = [] then
+        (netseeker1 (); netseeker2 ())
+      else
+        ensure_sync ();
       Thread.delay 60.0
     with _ ->
       Thread.delay 120.0
@@ -3095,6 +3099,7 @@ let initialize_commands () =
         | [lbk;ltx;f] when f = "assembly" -> (lbk,ltx,1)
         | [lbk;ltx;f] when f = "fof" -> (lbk,ltx,2)
         | [lbk;ltx;f] when f = "thf" -> (lbk,ltx,3)
+        | [lbk;ltx;f] when f = "mg" -> (lbk,ltx,256)
         | _ -> raise BadCommandForm
       in
       begin
@@ -3135,7 +3140,9 @@ let initialize_commands () =
               Printf.fprintf oc "Currently no implementation giving a TPTP fof problem for problems of class %s.\n" cls
           end
         else if formatval = 3 then
-          Checking.hf_thf_prob oc p;
+          Checking.hf_thf_prob oc p
+        else if formatval = 256 then
+          Checking.hf_mg_prob oc p;
         let pureid = tm_hashroot q in
         let inthyid = hashtag (hashopair2 (Some(Checking.hfthyid)) pureid) 33l in
         Printf.fprintf oc "Pure Id: %s\nId in Theory: %s\nAddress in Theory: %s\n" (hashval_hexstring pureid) (hashval_hexstring inthyid) (addr_pfgaddrstr (hashval_term_addr inthyid))

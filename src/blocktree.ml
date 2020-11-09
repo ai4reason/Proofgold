@@ -21,6 +21,9 @@ open Ctre
 open Block
 open Ltcrpc
 
+let localpreferred : (hashval,unit) Hashtbl.t = Hashtbl.create 10;;
+
+let stxpoolfee : (hashval,int64) Hashtbl.t = Hashtbl.create 1000;;
 let stxpooltm : (hashval,int64) Hashtbl.t = Hashtbl.create 1000;;
 let stxpool : (hashval,stx) Hashtbl.t = Hashtbl.create 1000;;
 let published_stx : (hashval,unit) Hashtbl.t = Hashtbl.create 1000;;
@@ -676,25 +679,35 @@ let rec get_bestblock () =
 	begin
 	  Printf.printf "No blocks were created in the past week. Proofgold has reached terminal status.\nSometimes this message means the node is out of sync with ltc.\n"
 	end;
-      let rec get_bestblock_r2 ctips ctipsr cwl =
+      let rec get_bestblock_r2 p ctipsorig ctips ctipsr cwl =
 	match ctips with
-	| [] -> get_bestblock_r ctipsr cwl
+	| [] ->
+           if p = 1 then
+             get_bestblock_r2 2 ctipsorig ctipsorig ctipsr cwl
+           else
+             get_bestblock_r ctipsr cwl
 	| (dbh,lbh,ltxh,ltm,lhght)::ctipr ->
 	    begin
 	      if DbInvalidatedBlocks.dbexists dbh then
-		get_bestblock_r2 ctipr ctipsr (ConsensusWarningInvalid(dbh)::cwl)
+		get_bestblock_r2 p ctipsorig ctipr ctipsr (ConsensusWarningInvalid(dbh)::cwl)
 	      else if DbBlacklist.dbexists dbh then
-		get_bestblock_r2 ctipr ctipsr (ConsensusWarningBlacklist(dbh)::cwl)
+		get_bestblock_r2 p ctipsorig ctipr ctipsr (ConsensusWarningBlacklist(dbh)::cwl)
 	      else
 		begin
 		  try
 		    let (lbk,ltx) = get_burn dbh in
-		    if Hashtbl.mem validblockvals (lbk,ltx) then
-		      (Some(dbh,lbk,ltx),cwl)
-		    else
-		      get_bestblock_r2 ctipr ctipsr (ConsensusWarningMissing(dbh,lbk,ltx)::cwl)
+                    if p = 1 then
+                      if Hashtbl.mem localpreferred dbh then
+		        (Some(dbh,lbk,ltx),cwl)
+                      else
+		        get_bestblock_r2 p ctipsorig ctipr ctipsr cwl
+                    else
+		      if Hashtbl.mem validblockvals (lbk,ltx) then
+		        (Some(dbh,lbk,ltx),cwl)
+		      else
+		        get_bestblock_r2 p ctipsorig ctipr ctipsr (ConsensusWarningMissing(dbh,lbk,ltx)::cwl)
 		  with Not_found ->
-		    get_bestblock_r2 ctipr ctipsr (ConsensusWarningNoBurn(dbh)::cwl)
+		    get_bestblock_r2 p ctipsorig ctipr ctipsr (ConsensusWarningNoBurn(dbh)::cwl)
 		end
 	    end
       and get_bestblock_r ctipsl cwl =
@@ -708,7 +721,7 @@ let rec get_bestblock () =
 	    else
 	      (None,cwl)
 	| (_,ctips)::ctipsr ->
-	    get_bestblock_r2 ctips ctipsr cwl
+	    get_bestblock_r2 1 ctips ctips ctipsr cwl
       in
       let cwl =
 	let tm = ltc_medtime() in
@@ -718,6 +731,20 @@ let rec get_bestblock () =
 	  []
       in
       get_bestblock_r ctips0l cwl
+
+let ensure_sync () =
+  let (_,ctips0l) = ltcpfgstatus_dbget !ltc_bestblock in
+  List.iter
+    (fun (_,ctips) ->
+      List.iter
+        (fun (dbh,lbh,ltxh,_,_) ->
+          if not (DbInvalidatedBlocks.dbexists dbh) && not (DbBlacklist.dbexists dbh) then
+            if not (DbBlockHeader.dbexists dbh) then
+              find_and_send_requestdata GetHeader dbh
+            else if not (DbBlockDelta.dbexists dbh) then
+              find_and_send_requestdata GetBlockdelta dbh)
+        ctips)
+    ctips0l
 
 let publish_stx txh stx1 =
   if not (Hashtbl.mem stxpool txh) then Hashtbl.add stxpool txh stx1;
@@ -1084,6 +1111,8 @@ let remove_from_txpool txid =
   try
     let stau = Hashtbl.find stxpool txid in
     Hashtbl.remove stxpool txid;
+    Hashtbl.remove stxpooltm txid;
+    Hashtbl.remove stxpoolfee txid;
     let ((txin,_),_) = stau in
     List.iter (fun (_,h) -> Hashtbl.remove unconfirmed_spent_assets h) txin
   with Not_found -> ()
@@ -1129,6 +1158,7 @@ Hashtbl.add msgtype_handler STx
 				let fee = Int64.sub 0L nfee in
 				if fee >= minfee then
 				  begin
+                                    Hashtbl.add stxpoolfee h (Int64.div fee (Int64.of_int txbytes));
 				    Hashtbl.add stxpool h stau;
 				    log_string (Printf.sprintf "Accepting tx %s into pool\n" (hashval_hexstring h));
 				    add_to_txpool h stau;

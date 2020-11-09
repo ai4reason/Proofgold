@@ -306,5 +306,6 @@ bin/proofgoldcli.cmo: src/proofgoldcli.ml bin/setconfig.cmo bin/ltcrpc.cmo bin/z
 	$(OCAMLC) -I bin -I +threads -I +zarith -o bin/proofgoldcli.cmo -c src/proofgoldcli.ml
 
 clean:
+	rm src/config.ml
 	rm bin/*
 

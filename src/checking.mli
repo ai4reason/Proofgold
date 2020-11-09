@@ -69,3 +69,4 @@ val comb_fof_prob : out_channel -> trm -> unit
 val qbf_fof_prob : out_channel -> trm -> unit
 
 val hf_thf_prob : out_channel -> trm -> unit
+val hf_mg_prob : out_channel -> trm -> unit

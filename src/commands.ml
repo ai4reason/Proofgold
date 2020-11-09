@@ -53,8 +53,24 @@ let load_txpooltm () =
 	Printf.printf "Problem in txpooltm file: %s\n" (Printexc.to_string exc);
 	close_in ch;;
 
+let load_txpoolfees () =
+  let fn = Filename.concat (datadir()) "txpoolfees" in
+  if Sys.file_exists fn then
+    let ch = open_in_bin fn in
+    try
+      while true do
+	let ((txid,fee),_) = sei_prod sei_hashval sei_int64 seic (ch,None) in
+        Hashtbl.add stxpoolfee txid fee
+      done
+    with
+    | End_of_file -> close_in ch
+    | exc ->
+	Printf.printf "Problem in txpoolfees file: %s\n" (Printexc.to_string exc);
+	close_in ch;;
+
 let load_txpool () =
   load_txpooltm();
+  load_txpoolfees();
   let fn = Filename.concat (datadir()) "txpool" in
   if Sys.file_exists fn then
     let ch = open_in_bin fn in
@@ -72,11 +88,19 @@ let load_txpool () =
 
 let save_txpool () =
   let fn = Filename.concat (datadir()) "txpool" in
+  let fn2 = Filename.concat (datadir()) "txpoolfees" in
   let ch = open_out_bin fn in
+  let ch2 = open_out_bin fn2 in
   Hashtbl.iter
-    (fun txid stau -> seocf (seo_prod seo_hashval Tx.seo_stx seoc (txid,stau) (ch,None)))
+    (fun txid stau ->
+      seocf (seo_prod seo_hashval Tx.seo_stx seoc (txid,stau) (ch,None));
+      try
+        let fee = Hashtbl.find stxpoolfee txid in
+        seocf (seo_prod seo_hashval seo_int64 seoc (txid,fee) (ch2,None))
+      with Not_found -> ())
     stxpool;
-  close_out ch;;
+  close_out ch;
+  close_out ch2;;
 
 let load_wallet () =
   let wallfn = Filename.concat (datadir()) "wallet" in
@@ -2241,7 +2265,6 @@ let sendtx oc blkh tm tr sr lr staustr =
 
 (*** should gather historic information as well ***)
 let proofgold_addr_jsoninfo raiseempty alpha pbh ledgerroot blkh =
-  let blkh = Int64.sub blkh 1L in
   let (jpbh,par) =
     match pbh with
     | None -> (JsonObj([("block",JsonStr("genesis"))]),None)

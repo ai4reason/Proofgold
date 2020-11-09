@@ -280,9 +280,13 @@ let openonionlistener onionaddr localport remoteport numconns =
 
 let connectpeer ip port =
   let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
-  let ia = Unix.inet_addr_of_string ip in
-  Unix.connect s (Unix.ADDR_INET(ia, port));
-  s
+  try
+    let ia = Unix.inet_addr_of_string ip in
+    Unix.connect s (Unix.ADDR_INET(ia, port));
+    s
+  with exn ->
+    Unix.close s;
+    raise exn
 
 let log_msg m =
   let h = string_hexstring m in
@@ -290,48 +294,53 @@ let log_msg m =
 
 let connectonionpeer proxyport onionaddr port =
   let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
-  Unix.connect s (Unix.ADDR_INET(Unix.inet_addr_loopback, proxyport));
-  let sin = Unix.in_channel_of_descr s in
-  let sout = Unix.out_channel_of_descr s in
-  set_binary_mode_in sin true;
-  set_binary_mode_out sout true;
-  output_byte sout 4;
-  output_byte sout 1;
-  (** port, big endian **)
-  output_byte sout ((port asr 8) land 255);
-  output_byte sout (port land 255);
-  (** fake ip for socks4a **)
-  output_byte sout 0;
-  output_byte sout 0;
-  output_byte sout 0;
-  output_byte sout 1;
-  output_byte sout 0; (** empty string **)
-  (** onion addr **)
-  for i = 0 to String.length onionaddr - 1 do
-    output_byte sout (Char.code onionaddr.[i])
-  done;
-  output_byte sout 0; (** terminate string **)
-  flush sout;
   try
-    let by = input_byte sin in
-    if not (by = 0) then raise (Failure "server did not give initial null byte");
-    let by = input_byte sin in
-    if by = 0x5b then raise (Failure "request rejected or failed");
-    if by = 0x5c then raise (Failure "request failed because client is not running identd (or not reachable from the server)");
-    if by = 0x5d then raise (Failure "request failed because client's identd could not confirm the user ID string in the request");
-    if not (by = 0x5a) then raise (Failure "bad status byte from server");
-    let rport1 = input_byte sin in
-    let rport0 = input_byte sin in
-    let rport = rport1 * 256 + rport0 in
-    let ip0 = input_byte sin in
-    let ip1 = input_byte sin in
-    let ip2 = input_byte sin in
-    let ip3 = input_byte sin in
-    log_msg (Printf.sprintf "Connected to %s:%d via socks4a with %d.%d.%d.%d:%d\n" onionaddr port ip0 ip1 ip2 ip3 rport);
-    (s,sin,sout)
-  with e ->
-    log_msg (Printf.sprintf "Failed to connect to %s:%d : %s\n" onionaddr port (Printexc.to_string e));
-    raise Exit
+    Unix.connect s (Unix.ADDR_INET(Unix.inet_addr_loopback, proxyport));
+    let sin = Unix.in_channel_of_descr s in
+    let sout = Unix.out_channel_of_descr s in
+    set_binary_mode_in sin true;
+    set_binary_mode_out sout true;
+    output_byte sout 4;
+    output_byte sout 1;
+    (** port, big endian **)
+    output_byte sout ((port asr 8) land 255);
+    output_byte sout (port land 255);
+    (** fake ip for socks4a **)
+    output_byte sout 0;
+    output_byte sout 0;
+    output_byte sout 0;
+    output_byte sout 1;
+    output_byte sout 0; (** empty string **)
+    (** onion addr **)
+    for i = 0 to String.length onionaddr - 1 do
+      output_byte sout (Char.code onionaddr.[i])
+    done;
+    output_byte sout 0; (** terminate string **)
+    flush sout;
+    try
+      let by = input_byte sin in
+      if not (by = 0) then raise (Failure "server did not give initial null byte");
+      let by = input_byte sin in
+      if by = 0x5b then raise (Failure "request rejected or failed");
+      if by = 0x5c then raise (Failure "request failed because client is not running identd (or not reachable from the server)");
+      if by = 0x5d then raise (Failure "request failed because client's identd could not confirm the user ID string in the request");
+      if not (by = 0x5a) then raise (Failure "bad status byte from server");
+      let rport1 = input_byte sin in
+      let rport0 = input_byte sin in
+      let rport = rport1 * 256 + rport0 in
+      let ip0 = input_byte sin in
+      let ip1 = input_byte sin in
+      let ip2 = input_byte sin in
+      let ip3 = input_byte sin in
+      log_msg (Printf.sprintf "Connected to %s:%d via socks4a with %d.%d.%d.%d:%d\n" onionaddr port ip0 ip1 ip2 ip3 rport);
+      (s,sin,sout)
+    with e ->
+      Unix.close s;
+      log_msg (Printf.sprintf "Failed to connect to %s:%d : %s\n" onionaddr port (Printexc.to_string e));
+      raise Exit
+  with exn ->
+    Unix.close s;
+    raise exn
 
 let extract_ipv4 ip =
   let x = Array.make 4 0 in
@@ -393,32 +402,36 @@ let extract_onion_and_port n =
 
 let connectpeer_socks4 proxyport ip port =
   let s = Unix.socket Unix.PF_INET Unix.SOCK_STREAM 0 in
-  Unix.connect s (Unix.ADDR_INET(Unix.inet_addr_loopback, proxyport));
-  let sin = Unix.in_channel_of_descr s in
-  let sout = Unix.out_channel_of_descr s in
-  set_binary_mode_in sin true;
-  set_binary_mode_out sout true;
-  output_byte sout 4;
-  output_byte sout 1;
-  (** port, big endian **)
-  output_byte sout ((port asr 8) land 255);
-  output_byte sout (port land 255);
-  (** ip **)
-  let (x0,x1,x2,x3) = extract_ipv4 ip in
-  output_byte sout x0;
-  output_byte sout x1;
-  output_byte sout x2;
-  output_byte sout x3;
-  output_byte sout 0;
-  flush sout;
-  let _ (* z *) = input_byte sin in
-  let cd = input_byte sin in
-  if not (cd = 90) then raise RequestRejected;
-  for i = 1 to 6 do
-    ignore (input_byte sin)
-  done;
-  (s,sin,sout)
-
+  try
+    Unix.connect s (Unix.ADDR_INET(Unix.inet_addr_loopback, proxyport));
+    let sin = Unix.in_channel_of_descr s in
+    let sout = Unix.out_channel_of_descr s in
+    set_binary_mode_in sin true;
+    set_binary_mode_out sout true;
+    output_byte sout 4;
+    output_byte sout 1;
+    (** port, big endian **)
+    output_byte sout ((port asr 8) land 255);
+    output_byte sout (port land 255);
+    (** ip **)
+    let (x0,x1,x2,x3) = extract_ipv4 ip in
+    output_byte sout x0;
+    output_byte sout x1;
+    output_byte sout x2;
+    output_byte sout x3;
+    output_byte sout 0;
+    flush sout;
+    let _ (* z *) = input_byte sin in
+    let cd = input_byte sin in
+    if not (cd = 90) then raise RequestRejected;
+    for i = 1 to 6 do
+      ignore (input_byte sin)
+    done;
+    (s,sin,sout)
+  with exn ->
+    Unix.close s;
+    raise exn
+      
 type connstate = {
     conntime : float;
     realaddr : string;
@@ -1061,7 +1074,7 @@ let netseeker_loop () =
     | _ -> ()
   done
 
-let netseeker () =
+let netseeker1 () =
   if loadknownpeers() = 0 then
     begin
       log_string "No known peers. Trying to get peers from proofgold.org/peers.txt\n";
@@ -1078,7 +1091,21 @@ let netseeker () =
         with exc ->
           ignore (Unix.close_process_full (inc,outc,errc))
       with exc -> ()
-    end;
+    end
+
+let netseeker2 () =
+  Hashtbl.iter
+    (fun n oldtm ->
+      try (*** don't try to connect to the same peer twice ***)
+	ignore (List.find
+		  (fun (_,_,(_,_,_,gcs)) -> peeraddr !gcs = n)
+		  !netconns)
+      with Not_found -> ignore (tryconnectpeer n)
+    )
+    knownpeers
+
+let netseeker () =
+  netseeker1 ();
   netseekerth := Some(Thread.create netseeker_loop ())
 
 let broadcast_requestdata mt h =

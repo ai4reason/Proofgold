@@ -13,6 +13,9 @@ open Tx
 open Ctre
 open Block
 
+val localpreferred : (hashval,unit) Hashtbl.t
+
+val stxpoolfee : (hashval,int64) Hashtbl.t
 val stxpooltm : (hashval,int64) Hashtbl.t
 val stxpool : (hashval,stx) Hashtbl.t
 val unconfirmed_spent_assets : (hashval,hashval) Hashtbl.t
@@ -65,3 +68,5 @@ val recursively_invalidate_blocks : hashval -> unit
 val recursively_revalidate_blocks : hashval -> unit
 
 val reprocessblock : out_channel -> hashval -> unit
+
+val ensure_sync : unit -> unit

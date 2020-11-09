@@ -3914,3 +3914,31 @@ let hohf_thf_header c =
 let hf_thf_prob c p =
   hohf_thf_header c;
   Printf.fprintf c "thf(conj,conjecture,%s).\n" (hf_trm_thf_str p [])
+
+let rec hf_stp_mg_str a =
+  match a with
+  | TpArr(a1,a2) -> Printf.sprintf "(%s -> %s)" (hf_stp_mg_str a1) (hf_stp_mg_str a2)
+  | Prop -> "prop"
+  | Base(_) -> "set"
+
+let rec hf_trm_mg_str m vl =
+  match m with
+  | TmH(_) -> raise (Failure "TmH should not occur in reward bounty formulas") (** might generalize this to work for nonreward bounty formulas later **)
+  | DB(i) -> (try List.nth vl i with _ -> raise (Failure "unbound de Bruijn"))
+  | Prim(i) -> Printf.sprintf "%s" hfprimnamesa.(i)
+  | Ap(m1,m2) -> Printf.sprintf "(%s %s)" (hf_trm_mg_str m1 vl) (hf_trm_mg_str m2 vl)
+  | Lam(a1,m1) ->
+     let x = Printf.sprintf "X%d" (List.length vl) in
+     Printf.sprintf "(fun %s:%s => %s)" x (hf_stp_mg_str a1) (hf_trm_mg_str m1 (x::vl))
+  | Imp(m1,m2) -> Printf.sprintf "(%s -> %s)" (hf_trm_mg_str m1 vl) (hf_trm_mg_str m2 vl)
+  | All(a1,m1) ->
+     let x = Printf.sprintf "X%d" (List.length vl) in
+     Printf.sprintf "(forall %s:%s, %s)" x (hf_stp_mg_str a1) (hf_trm_mg_str m1 (x::vl))
+  | Ex(a1,m1) ->
+     let x = Printf.sprintf "X%d" (List.length vl) in
+     Printf.sprintf "(exists %s:%s, %s)" x (hf_stp_mg_str a1) (hf_trm_mg_str m1 (x::vl))
+  | Eq(_,m1,m2) -> Printf.sprintf "(%s = %s)" (hf_trm_mg_str m1 vl) (hf_trm_mg_str m2 vl)
+
+let hf_mg_prob c p =
+  Printf.fprintf c "Theorem conj: %s\n" (hf_trm_mg_str p [])
+                 

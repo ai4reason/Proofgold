@@ -46,17 +46,31 @@ let coinagefactor blkh bday obl =
      let mday = Int64.add bday reward_maturation in
      if mday > blkh then (*** only allow for staking after mature ***)
        zero_big_int
+     else if blkh < 124L then
+       big_int_of_int 10000 (** so old blocks before the June 13 2020 emergency hard fork will still be valid **)
      else
-       unit_big_int (*** no coinage factor for rewards, whether locked or unlocked ***)
+       let age = Int64.sub blkh mday in
+       if age > 10000L then
+         big_int_of_int 10000
+       else
+         big_int_of_int64 age
   | Some(_,n,_) -> (*** in this case it's locked until block height n and is not a reward ***)
      if bday >= Int64.sub blkh 8L then (*** only start aging after it is mature ***)
        zero_big_int
-     else if blkh >= n then (*** after unlocked, no coinage factor ***)
-       unit_big_int (*** no coinage factor for rewards, whether locked or unlocked ***)
-     else (*** if locked, coinage factor of 2 ***)
-       two_big_int
+     else if blkh >= n then
+       let age = Int64.sub blkh n in (** after unlocked, restart growing coinage **)
+       if age > 10000L then
+         big_int_of_int 10000
+       else
+         big_int_of_int64 age
+     else (*** if locked, coinage grows twice as fast ***)
+       let age = Int64.sub blkh bday in
+       if age > 5000L then
+         big_int_of_int 10000
+       else
+         big_int_of_int64 (Int64.mul 2L age)
 
-let coinage blkh bday obl v = mult_big_int (coinagefactor blkh bday obl) (big_int_of_int64 v)
+let coinage blkh bday obl v = mult_big_int (coinagefactor blkh bday obl) (big_int_of_int64 (Int64.div v 10000L))
 
 type hlist = HHash of hashval * int | HNil | HCons of asset * hlist | HConsH of hashval * hlist
 

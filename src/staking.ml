@@ -24,6 +24,19 @@ open Block
 open Blocktree
 open Commands
 
+let sorted_stxpool () =
+  let sl1 = ref [] in (* no fee info, assume local so prefer and don't require fee *)
+  let sl2 = ref [] in (* fee info, sorted by fee size *)
+  Hashtbl.iter
+    (fun h stau ->
+      try
+        let fee = Hashtbl.find stxpoolfee h in
+        sl2 := List.merge (fun (_,_,x) (_,_,y) -> compare y x) [(h,stau,fee)] !sl2
+      with Not_found ->
+        sl1 := (h,stau)::!sl1)
+    stxpool;
+  !sl1 @ List.map (fun (h,stau,_) -> (h,stau)) !sl2
+
 let blockheaderdata_burn_vin1_match bhd txid vout =
   match bhd.pureburn with
   | None -> true
@@ -242,7 +255,12 @@ let compute_staking_chances (prevblkh,lbk,ltx) fromtm totm =
 		    let hv = hitval !i h csm1 in
 		    let mtar = mult_big_int tar1 caf in
 		    let minv = div_big_int hv mtar in
-		    let toburn = succ_big_int (div_big_int (sub_big_int minv (big_int_of_int64 v)) (big_int_of_int 1000000)) in
+		    let toburn =
+                      if blkhght < 124L then
+                        succ_big_int (div_big_int (sub_big_int minv (big_int_of_int64 v)) (big_int_of_int 1000000))
+                      else
+                        succ_big_int (div_big_int (sub_big_int (mult_big_int minv (big_int_of_int 10000)) (big_int_of_int64 v)) (big_int_of_int 1000000))
+                    in
 		    if lt_big_int zero_big_int toburn && lt_big_int toburn (big_int_of_string "1000000000") then (*** 10 ltc limit for reporting staking chances ***)
 		      begin
 			match !minburntostake with
@@ -256,7 +274,7 @@ let compute_staking_chances (prevblkh,lbk,ltx) fromtm totm =
 				minburntostake := Some(toburn,!i,Some(stkaddr,h),None)
 			      end
 		      end;
-		    if lt_big_int minv (big_int_of_int64 v) then (*** hit without burn ***)
+		    if le_big_int toburn zero_big_int then (*** hit without burn ***)
 		      (nextstake !i stkaddr h bday obl v (Some(0L))) (*** burn nothing, but announce in the pow chain (ltc) ***)
 		    else
 		      if le_big_int toburn mbnb then (*** hit with burn ***)
@@ -503,9 +521,9 @@ let stakingthread () =
 			        done
 			      with _ -> (try close_in ch with _ -> ())
 			    end;
-			  Hashtbl.iter
-			    (fun h stau -> try_to_incl_stx h stau)
-			    stxpool;
+                          List.iter
+                            (fun (h,stau) -> try_to_incl_stx h stau)
+			    (sorted_stxpool());
 			  let ostxs = !otherstxs in
 			  let otherstxs = ref [] in (*** reverse them during this process so they will be evaluated in the intended order ***)
 			  List.iter
@@ -813,6 +831,7 @@ let stakingthread () =
 					    pendingltctxs := h::!pendingltctxs;
 					    log_string (Printf.sprintf "Sending ltc burn %s for header %s\n" h (hashval_hexstring newblkid));
 					    publish_block blkh newblkid ((bhdnew,bhsnew),bdnew);
+					    Hashtbl.add localpreferred newblkid ();
 					    extraburn := 0L;
 					    already := Some(newblkid,hexstring_hashval h);
 					    pending := !already;
@@ -1273,6 +1292,7 @@ let stakingthread () =
 						 pendingltctxs := h::!pendingltctxs;
 						 log_string (Printf.sprintf "Sending ltc burn %s for header %s\n" h (hashval_hexstring newblkid));
 						 publish_block blkh newblkid ((bhdnew,bhsnew),bdnew);
+						 Hashtbl.add localpreferred newblkid ();
 						 extraburn := 0L;
 						 already := Some(newblkid,hexstring_hashval h);
 						 pending := !already;
@@ -1610,6 +1630,7 @@ let stakingthread () =
 					       pendingltctxs := h::!pendingltctxs;
 					       log_string (Printf.sprintf "Sending ltc burn %s for header %s\n" h (hashval_hexstring newblkid));
 					       publish_block blkh newblkid ((bhdnew,bhsnew),bdnew);
+                                               Hashtbl.add localpreferred newblkid ();
 					       extraburn := 0L;
 					       already := Some(newblkid,hexstring_hashval h);
 					       pending := !already;

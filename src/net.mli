@@ -129,6 +129,8 @@ val remove_dead_conns : unit -> unit
 
 val netlistener : Unix.file_descr -> unit
 val onionlistener : Unix.file_descr -> unit
+val netseeker1 : unit -> unit
+val netseeker2 : unit -> unit
 val netseeker : unit -> unit
 
 val network_time : unit -> int64 * int
