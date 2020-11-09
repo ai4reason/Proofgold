@@ -3358,21 +3358,23 @@ let initialize_commands () =
 		Printf.fprintf oc "- %s (blacklisted, presumably invalid) %s %s %Ld %Ld\n" (hashval_hexstring dbh) (hashval_hexstring lbh) (hashval_hexstring ltx) ltm lhght
 	      else if DbInvalidatedBlocks.dbexists dbh then
 		Printf.fprintf oc "- %s (marked invalid) %s %s %Ld %Ld\n" (hashval_hexstring dbh) (hashval_hexstring lbh) (hashval_hexstring ltx) ltm lhght
-	      else if Db_validblockvals.dbexists (hashpair lbh ltx) then
-		Printf.fprintf oc "+ %s %s %s %Ld %Ld\n" (hashval_hexstring dbh) (hashval_hexstring lbh) (hashval_hexstring ltx) ltm lhght
-	      else if Db_validheadervals.dbexists (hashpair lbh ltx) then
-		if DbBlockDelta.dbexists dbh then
-		  Printf.fprintf oc "* %s (have delta, but not fully validated) %s %s %Ld %Ld\n" (hashval_hexstring dbh) (hashval_hexstring lbh) (hashval_hexstring ltx) ltm lhght
-		else
-		  Printf.fprintf oc "* %s (missing delta) %s %s %Ld %Ld\n" (hashval_hexstring dbh) (hashval_hexstring lbh) (hashval_hexstring ltx) ltm lhght
 	      else
-		if DbBlockHeader.dbexists dbh then
+                let lh = hashpair lbh ltx in
+                if Db_validblockvals.dbexists lh then
+		  Printf.fprintf oc "+ %s %s %s %Ld %Ld\n" (hashval_hexstring dbh) (hashval_hexstring lbh) (hashval_hexstring ltx) ltm lhght
+	        else if Db_validheadervals.dbexists lh then
 		  if DbBlockDelta.dbexists dbh then
-		    Printf.fprintf oc "* %s (have block, but neither header nor delta fully valided) %s %s %Ld %Ld\n" (hashval_hexstring dbh) (hashval_hexstring lbh) (hashval_hexstring ltx) ltm lhght
+		    Printf.fprintf oc "* %s (have delta, but not fully validated) %s %s %Ld %Ld\n" (hashval_hexstring dbh) (hashval_hexstring lbh) (hashval_hexstring ltx) ltm lhght
 		  else
-		    Printf.fprintf oc "* %s (missing delta, header not fully validated) %s %s %Ld %Ld\n" (hashval_hexstring dbh) (hashval_hexstring lbh) (hashval_hexstring ltx) ltm lhght
-		else
-		  Printf.fprintf oc "* %s (missing header) %s %s %Ld %Ld\n" (hashval_hexstring dbh) (hashval_hexstring lbh) (hashval_hexstring ltx) ltm lhght)
+		    Printf.fprintf oc "* %s (missing delta) %s %s %Ld %Ld\n" (hashval_hexstring dbh) (hashval_hexstring lbh) (hashval_hexstring ltx) ltm lhght
+	        else
+		  if DbBlockHeader.dbexists dbh then
+		    if DbBlockDelta.dbexists dbh then
+		      Printf.fprintf oc "* %s (have block, but neither header nor delta fully valided) %s %s %Ld %Ld\n" (hashval_hexstring dbh) (hashval_hexstring lbh) (hashval_hexstring ltx) ltm lhght
+		    else
+		      Printf.fprintf oc "* %s (missing delta, header not fully validated) %s %s %Ld %Ld\n" (hashval_hexstring dbh) (hashval_hexstring lbh) (hashval_hexstring ltx) ltm lhght
+		  else
+		    Printf.fprintf oc "* %s (missing header) %s %s %Ld %Ld\n" (hashval_hexstring dbh) (hashval_hexstring lbh) (hashval_hexstring ltx) ltm lhght)
 	    zl)
 	zll);
   ac "ltcgettxinfo" "ltcgettxinfo <txid>" "Get proofgold related information about an ltc burn tx."
@@ -4944,11 +4946,19 @@ let initialize_commands () =
       | [] -> Commands.reprocess_blockchain oc (get_bestblock_print_warnings oc) 1
       | [n] -> let n = int_of_string n in Commands.reprocess_blockchain oc (get_bestblock_print_warnings oc) n
       | _ -> raise BadCommandForm);
-  ac "reprocessblock" "reprocessblock <blockhash>" "Manually reprocess a given block.\nThis is useful if either -ltcoffline is set or if part of the current ledger seems to be missing from the local node.\nIf the current node has the full ledger from before the block,\nthen processing the block should ensure the node has the resulting full ledger."
+  ac "reprocessblock" "reprocessblock <blockid> <ltcblock> <ltcburntx>" "Manually reprocess a given block.\nThis is useful if either -ltcoffline is set or if part of the current ledger seems to be missing from the local node.\nIf the current node has the full ledger from before the block,\nthen processing the block should ensure the node has the resulting full ledger."
     (fun oc al ->
       match al with
-      | [h] -> reprocessblock oc (hexstring_hashval h)
-      | _ -> raise (Failure "reprocessblock <blockid>"));;
+      | [h;lbk;ltx] ->
+         let h = hexstring_hashval h in
+         let lbk = hexstring_hashval lbk in
+         let ltx = hexstring_hashval ltx in
+         let lh = hashpair lbk ltx in
+         Db_validheadervals.dbdelete lh;
+         Db_validblockvals.dbdelete lh;
+         DbInvalidatedBlocks.dbdelete h;
+         reprocessblock oc h lbk ltx
+      | _ -> raise (Failure "reprocessblock <blockid> <ltcblock> <ltcburntx>"));;
 
 let rec parse_command_r l i n =
   if i < n then

@@ -617,56 +617,58 @@ let ltc_getburntransactioninfo h =
       ignore (Unix.close_process_full (inc,outc,errc));
       l
   in
-  match parse_jsonval l with
-  | (JsonObj(al),_) ->
-      begin
-	match List.assoc "result" al with
-	| JsonObj(bl) ->
-	    begin
-	      match List.assoc "vout" bl with
-	      | JsonArr(JsonObj(vout1)::_) ->
-		  let litoshisburned = json_assoc_litoshis "value" vout1 in
-		  begin
-		    match List.assoc "scriptPubKey" vout1 with
-		    | JsonObj(cl) ->
-		       let hex = json_assoc_string "hex" cl in
-			if String.length hex >= 132 && hex.[0] = '6' && hex.[1] = 'a' && hex.[2] = '4' then
+  try
+    begin
+      match parse_jsonval l with
+      | (JsonObj(al),_) ->
+         begin
+	   match List.assoc "result" al with
+	   | JsonObj(bl) ->
+	      begin
+	        match List.assoc "vout" bl with
+	        | JsonArr(JsonObj(vout1)::_) ->
+		   let litoshisburned = json_assoc_litoshis "value" vout1 in
+		   begin
+		     match List.assoc "scriptPubKey" vout1 with
+		     | JsonObj(cl) ->
+		        let hex = json_assoc_string "hex" cl in
+		        if String.length hex >= 132 && hex.[0] = '6' && hex.[1] = 'a' && hex.[2] = '4' then
 			  begin
 			    let hex =
 			      if hex.[3] = 'c' then (*** pushing up to 255 bytes ***)
-				String.sub hex 6 ((String.length hex) - 6)
+			        String.sub hex 6 ((String.length hex) - 6)
 			      else if hex.[3] = 'd' then (*** pushing up to 64K bytes ***)
-				String.sub hex 8 ((String.length hex) - 8)
+			        String.sub hex 8 ((String.length hex) - 8)
 			      else
-				String.sub hex 4 ((String.length hex) - 4)
+			        String.sub hex 4 ((String.length hex) - 4)
 			    in
 			    let lprevtx = hexstring_hashval (String.sub hex 0 64) in
 			    let dnxt = hexstring_hashval (String.sub hex 64 64) in
 			    begin
 			      let hexl = String.length hex in
 			      if hexl > 132 then
-				let extradata = hexstring_string (String.sub hex 128 ((String.length hex) - 128)) in
-				if extradata.[0] = 'o' then
+			        let extradata = hexstring_string (String.sub hex 128 ((String.length hex) - 128)) in
+			        if extradata.[0] = 'o' then
 				  begin
 				    if List.length !netconns < !Config.maxconns then
 				      begin
-					let onionaddr = Buffer.create 10 in
-					try
+				        let onionaddr = Buffer.create 10 in
+				        try
 					  for i = 1 to ((String.length extradata) - 1) do
 					    if extradata.[i] = '.' then
 					      begin
-						let peer = Printf.sprintf "%s.onion:20808" (Buffer.contents onionaddr) in
+					        let peer = Printf.sprintf "%s.onion:20808" (Buffer.contents onionaddr) in
                                                 if not (Hashtbl.mem donotretrypeer peer) then
                                                   begin
                                                     Hashtbl.add donotretrypeer peer ();
                                                     ignore (tryconnectpeer peer);
 						    ignore (addknownpeer (Int64.of_float (Unix.time())) peer);
                                                   end;
-						raise Exit
+					        raise Exit
 					      end
 					    else if extradata.[i] = ':' then
 					      begin
-						if i+2 < String.length extradata then
+					        if i+2 < String.length extradata then
 						  begin
 						    let port = (Char.code extradata.[i+1]) * 256 + (Char.code extradata.[i+2]) in
 						    let peer = Printf.sprintf "%s.onion:%d" (Buffer.contents onionaddr) port in
@@ -677,24 +679,24 @@ let ltc_getburntransactioninfo h =
 						        ignore (addknownpeer (Int64.of_float (Unix.time())) peer);
                                                       end
 						  end
-						else
+					        else
 						  raise Exit
 					      end
 					    else
 					      Buffer.add_char onionaddr extradata.[i]
 					  done
-					with Exit -> ()
+				        with Exit -> ()
 				      end
 				  end
-				else if extradata.[0] = 'I' then
+			        else if extradata.[0] = 'I' then
 				  begin
 				    if List.length !netconns < !Config.maxconns && ((String.length extradata) > 4) then
 				      begin
-					let ip0 = Char.code extradata.[1] in
-					let ip1 = Char.code extradata.[2] in
-					let ip2 = Char.code extradata.[3] in
-					let ip3 = Char.code extradata.[4] in
-					let peer = Printf.sprintf "%d.%d.%d.%d:20805" ip0 ip1 ip2 ip3 in
+				        let ip0 = Char.code extradata.[1] in
+				        let ip1 = Char.code extradata.[2] in
+				        let ip2 = Char.code extradata.[3] in
+				        let ip3 = Char.code extradata.[4] in
+				        let peer = Printf.sprintf "%d.%d.%d.%d:20805" ip0 ip1 ip2 ip3 in
                                         if not (Hashtbl.mem donotretrypeer peer) then
                                           begin
                                             Hashtbl.add donotretrypeer peer ();
@@ -703,16 +705,16 @@ let ltc_getburntransactioninfo h =
                                           end
 				      end
 				  end
-				else if extradata.[0] = 'i' then
+			        else if extradata.[0] = 'i' then
 				  begin
 				    if List.length !netconns < !Config.maxconns && ((String.length extradata) > 6) then
 				      begin
-					let ip0 = Char.code extradata.[1] in
-					let ip1 = Char.code extradata.[2] in
-					let ip2 = Char.code extradata.[3] in
-					let ip3 = Char.code extradata.[4] in
-					let port = (Char.code extradata.[5]) * 256 + Char.code extradata.[6] in
-					let peer = Printf.sprintf "%d.%d.%d.%d:%d" ip0 ip1 ip2 ip3 port in
+				        let ip0 = Char.code extradata.[1] in
+				        let ip1 = Char.code extradata.[2] in
+				        let ip2 = Char.code extradata.[3] in
+				        let ip3 = Char.code extradata.[4] in
+				        let port = (Char.code extradata.[5]) * 256 + Char.code extradata.[6] in
+				        let peer = Printf.sprintf "%d.%d.%d.%d:%d" ip0 ip1 ip2 ip3 port in
                                         if not (Hashtbl.mem donotretrypeer peer) then
                                           begin
                                             Hashtbl.add donotretrypeer peer ();
@@ -724,20 +726,20 @@ let ltc_getburntransactioninfo h =
 			    end;
 			    let lblkh =
 			      begin
-				try
+			        try
 				  match List.assoc "blockhash" bl with
 				  | JsonStr(lblkh) -> Some(lblkh)
 				  | _ -> None
-				with Not_found -> None
+			        with Not_found -> None
 			      end
 			    in
 			    let confs =
 			      begin
-				try
+			        try
 				  match List.assoc "confirmations" bl with
 				  | JsonNum(c) -> Some(int_of_string c)
 				  | _ -> None
-				with _ -> None
+			        with _ -> None
 			      end
 			    in
                             match List.assoc "vin" bl with
@@ -747,28 +749,30 @@ let ltc_getburntransactioninfo h =
 			       (litoshisburned,lprevtx,dnxt,lblkh,confs,txid1,vout1)
                             | _ ->
 	                       (Utils.log_string (Printf.sprintf "problem getting first utxo spent by ltc getrawtransaction:\n%s\n" l));
-                               raise Not_found
+			       raise NotAnLtcBurnTx
 			  end
-			else
+		        else
 			  begin
 			    (Utils.log_string (Printf.sprintf "problem return from ltc getrawtransaction:\n%s\n" l));
 			    raise NotAnLtcBurnTx
 			  end
-		    | _ ->
-			(Utils.log_string (Printf.sprintf "problem return from ltc getrawtransaction:\n%s\n" l));
-			raise NotAnLtcBurnTx
-		  end
-	      | _ ->
-		  (Utils.log_string (Printf.sprintf "problem return from ltc getrawtransaction:\n%s\n" l));
-		  raise Not_found
-	    end
-	| _ ->
-	    (Utils.log_string (Printf.sprintf "problem return from ltc getrawtransaction:\n%s\n" l));
-	    raise Not_found
-      end
-  | _ ->
-      (Utils.log_string (Printf.sprintf "problem return from ltc getrawtransaction:\n%s\n" l));
-      raise Not_found
+		     | _ ->
+		        (Utils.log_string (Printf.sprintf "problem return from ltc getrawtransaction:\n%s\n" l));
+		        raise NotAnLtcBurnTx
+		   end
+	        | _ ->
+		   (Utils.log_string (Printf.sprintf "problem return from ltc getrawtransaction:\n%s\n" l));
+		   raise NotAnLtcBurnTx
+	      end
+	   | _ ->
+	      (Utils.log_string (Printf.sprintf "problem return from ltc getrawtransaction:\n%s\n" l));
+	      raise NotAnLtcBurnTx
+         end
+      | _ ->
+         (Utils.log_string (Printf.sprintf "problem return from ltc getrawtransaction:\n%s\n" l));
+         raise NotAnLtcBurnTx
+    end
+  with JsonParseFail(_,_) -> raise NotAnLtcBurnTx
 
 module DbLtcBurnTx = Dbbasic2 (struct type t = int64 * hashval * hashval * hashval * int32 let basedir = "ltcburntx" let seival = sei_prod5 sei_int64 sei_hashval sei_hashval sei_hashval sei_int32 seic let seoval = seo_prod5 seo_int64 seo_hashval seo_hashval seo_hashval seo_int32 seoc end)
 
@@ -791,9 +795,9 @@ let rec ltc_process_block h =
       let succl = ref [] in
       let txhhs = ref [] in
       List.iter
-	  (fun txh ->
-	    let txhh = hexstring_hashval txh in
-	    let handle txid1 vout1 burned lprevtx dnxt =
+	(fun txh ->
+	  let txhh = hexstring_hashval txh in
+	  let handle txid1 vout1 burned lprevtx dnxt =
               insert_blockburn dnxt (hh,txhh);
 	      if lprevtx = (0l,0l,0l,0l,0l,0l,0l,0l) then
 		begin
@@ -822,10 +826,11 @@ let rec ltc_process_block h =
 		end
 	      else
 		begin
-		  DbLtcBurnTx.dbput txhh (burned,lprevtx,dnxt,txid1,vout1);
 		  try
+                    if not (DbLtcBurnTx.dbexists lprevtx) then raise NotAnLtcBurnTx; (** if we do not already know about the alleged previous burn tx, then do not accept the new one. **)
 		    let (_,_,dprev,lprevblkh,_,_,_) = ltc_getburntransactioninfo (hashval_hexstring lprevtx) in
 		    (Utils.log_string (Printf.sprintf "Adding burn %s for header %s (txid1 %s vout1 %ld)\n" txh (hashval_hexstring dnxt) (hashval_hexstring txid1) vout1));
+		    DbLtcBurnTx.dbput txhh (burned,lprevtx,dnxt,txid1,vout1);
 		    txhhs := txhh :: !txhhs;
 		    succl := (dprev,txhh,burned,dnxt)::!succl;
 		    if not (Db_outlinevals.dbexists (hashpair hh txhh)) then
@@ -855,8 +860,11 @@ let rec ltc_process_block h =
 			  | None -> ()
 			with Not_found -> ()
 		      end
-		  with Not_found ->
-		    Utils.log_string (Printf.sprintf "Could not find parent ltc burn tx %s for burn %s for header %s\n" (hashval_hexstring lprevtx) txh (hashval_hexstring dnxt))
+		  with
+                  | NotAnLtcBurnTx ->
+		     DbLtcBurnTx.dbdelete txhh
+                  | Not_found ->
+		     Utils.log_string (Printf.sprintf "Could not find parent ltc burn tx %s for burn %s for header %s\n" (hashval_hexstring lprevtx) txh (hashval_hexstring dnxt))
 		end
 	    in
 	    try

@@ -3230,14 +3230,17 @@ let pblockchain s n m =
 
 let rec reprocess_blockchain_r s lbk ltx m =
   try
-    let (dbh,lmedtm,burned,(txid1,vout1),par,csm,blkh) = Db_outlinevals.dbget (hashpair lbk ltx) in
+    let lh = hashpair lbk ltx in
+    let (dbh,lmedtm,burned,(txid1,vout1),par,csm,blkh) = Db_outlinevals.dbget lh in
+    Db_validheadervals.dbdelete lh;
+    Db_validblockvals.dbdelete lh;
     if blkh > m then
       begin
 	match par with
 	| Some(lbk,ltx) -> reprocess_blockchain_r s lbk ltx m
 	| None -> ()
       end;
-    reprocessblock s dbh
+    reprocessblock s dbh lbk ltx
   with Not_found ->
     Printf.fprintf s "apparent block burned with ltc tx %s in block %s, but missing outline info\n" (hashval_hexstring ltx) (hashval_hexstring lbk)
 

@@ -67,6 +67,6 @@ val savetxtopool_real : hashval -> stx -> unit
 val recursively_invalidate_blocks : hashval -> unit
 val recursively_revalidate_blocks : hashval -> unit
 
-val reprocessblock : out_channel -> hashval -> unit
+val reprocessblock : out_channel -> hashval -> hashval -> hashval -> unit
 
 val ensure_sync : unit -> unit

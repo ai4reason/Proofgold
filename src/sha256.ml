@@ -299,17 +299,6 @@ let sei_md256 i c =
   let (h7,c) = sei_int32 i c in
   ((h0,h1,h2,h3,h4,h5,h6,h7),c)
 
-let strong_rand_256 () =
-  if Sys.file_exists "/dev/random" then
-    begin
-      let dr = open_in_bin "/dev/random" in
-      let (n,_) = sei_md256 seic (dr,None) in
-      close_in dr;
-      md256_big_int n
-    end
-  else
-    raise (Failure "Cannot generate cryptographically strong random numbers")
-
 let rand_256 () =
   if not !random_initialized then initialize_random_seed();
   let m0 = rand_int32() in
@@ -321,3 +310,18 @@ let rand_256 () =
   let m6 = rand_int32() in
   let m7 = rand_int32() in
   md256_big_int (m0,m1,m2,m3,m4,m5,m6,m7)
+
+let strong_rand_256 () =
+  match !Config.randomseed with
+  | Some(_) -> rand_256()
+  | None ->
+     if Sys.file_exists "/dev/random" then
+       begin
+         let dr = open_in_bin "/dev/random" in
+         let (n,_) = sei_md256 seic (dr,None) in
+         close_in dr;
+         md256_big_int n
+       end
+     else
+       raise (Failure "Cannot generate cryptographically strong random numbers")
+         
