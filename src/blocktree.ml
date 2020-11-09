@@ -23,6 +23,8 @@ open Ltcrpc
 
 let localpreferred : (hashval,unit) Hashtbl.t = Hashtbl.create 10;;
 
+let processing : int64 option ref = ref None;;
+
 let stxpoolfee : (hashval,int64) Hashtbl.t = Hashtbl.create 1000;;
 let stxpooltm : (hashval,int64) Hashtbl.t = Hashtbl.create 1000;;
 let stxpool : (hashval,stx) Hashtbl.t = Hashtbl.create 1000;;
@@ -287,10 +289,34 @@ let rec ensure_prev_block_valid_p lh dbh (bhd,bhs) =
      if Db_validblockvals.dbexists lh then Db_validblockvals.dbdelete lh;
      false
 
+(** try to avoid processing more than one header/delta/block at once in different threads; it should still work if we do, but it's likely to be doing the same work multiple times **)
+let processing_wrapper f =
+  try
+    while true do
+      match !processing with
+      | Some(tm) ->
+         if Int64.add tm 1800L < Int64.of_float (Unix.time()) then
+           (processing := None; raise Exit)
+         else
+           Thread.delay 60.0
+      | None -> raise Exit
+    done
+  with
+  | Exit ->
+     let tm = Int64.of_float (Unix.time()) in
+     processing := Some(tm);
+     try
+       f();
+       processing := None
+     with
+     | e ->
+        processing := None;
+        raise e
+
 (*** assumes ancestors have been validated and info for parent is on validheadervals;
  but also does some extra checking in ensure_prev_header_valid_p
  ***)
-let process_header sout validate forw dbp (lbh,ltxh) h (bhd,bhs) currhght csm tar lmedtm burned txid1 vout1 =
+let process_header_real sout validate forw dbp (lbh,ltxh) h (bhd,bhs) currhght csm tar lmedtm burned txid1 vout1 =
   if validate then
     begin
       let bh = blockheader_id (bhd,bhs) in
@@ -342,16 +368,96 @@ let process_header sout validate forw dbp (lbh,ltxh) h (bhd,bhs) currhght csm ta
       if not (DbBlockDelta.dbexists h) then if not (List.exists (fun (_,k) -> k = h) !missingdeltas) then missingdeltas := List.merge (fun (i,_) (j,_) -> compare i j) [(currhght,h)] !missingdeltas;
     end
 
+let process_header sout validate forw dbp (lbh,ltxh) h (bhd,bhs) currhght csm tar lmedtm burned txid1 vout1 =
+  processing_wrapper
+    (fun () -> process_header_real sout validate forw dbp (lbh,ltxh) h (bhd,bhs) currhght csm tar lmedtm burned txid1 vout1)
+     
 (*** this is for saving the new ctree elements in the database ***)
-let rec process_delta_ctree h blkhght blk =
+let process_delta_ctree_real h blkhght blk bhd blkdel =
+  List.iter
+    (fun stau ->
+      let txid = hashstx stau in
+      DbSTx.dbput txid stau)
+    blkdel.blockdelta_stxl;
+  begin
+    let prevc1 = ctree_of_block blk in
+    let prevc2 = (* remove temporary staked asset in case of pure burn *)
+      match bhd.pureburn with
+      | None -> prevc1
+      | Some(_,_) ->
+         match tx_octree_trans false false 1L ([(p2pkhaddr_addr bhd.stakeaddr,bhd.stakeassetid)],[]) (Some(prevc1)) with
+         | Some(prevledger2) -> prevledger2
+         | None -> raise (Failure("removing the temporary staked asset in pure burn case somehow (impossibly) left ledger empty"))
+    in
+    let prevc3 = ctree_expand_leaves prevc2 in
+    let prevc = (* and now put the asset back into the expanded ctree before transofming *)
+      match bhd.pureburn with
+      | None -> prevc3
+      | Some(_,_) ->
+         let aid = bhd.stakeassetid in
+         let a = (aid,0L,None,Currency(0L)) in
+         match tx_octree_trans_ false false 162 [] [(addr_bitseq (p2pkhaddr_addr bhd.stakeaddr),a)] (Some(prevc3)) with
+         | Some(prevc) -> prevc
+         | None -> raise (Failure("impossible"))
+    in
+    let (cstk,txl) = txl_of_block blk in (*** the coinstake tx is performed last, i.e., after the txs in the block. ***)
+    try
+      match tx_octree_trans false false blkhght cstk (txl_octree_trans false false blkhght txl (Some(prevc))) with (*** "false false" disallows database lookups and remote requests ***)
+      | Some(newc) ->
+         ignore (save_ctree_atoms newc)
+      | None -> raise (Failure("transformed tree was empty, although block seemed to be valid"))
+    with MaxAssetsAtAddress -> raise (Failure("transformed tree would hold too many assets at an address"))
+  end
+
+let rec process_delta_ctree_very_behind n h blkhght (blkh,blkd) =
+  if n > 0 then
+    begin
+      let (bhd,_) = blkh in
+      begin
+        try
+          let prevc1 = bhd.prevledger in
+          let prevc2 = (* remove temporary staked asset in case of pure burn *)
+            match bhd.pureburn with
+            | None -> prevc1
+            | Some(_,_) ->
+               match tx_octree_trans false false 1L ([(p2pkhaddr_addr bhd.stakeaddr,bhd.stakeassetid)],[]) (Some(prevc1)) with
+               | Some(prevledger2) -> prevledger2
+               | None -> raise (Failure("removing the temporary staked asset in pure burn case somehow (impossibly) left ledger empty"))
+          in
+          let lr = ctree_hashroot prevc2 in
+          verifyledger_h lr [];
+          false (** not very behind **)
+        with _ ->
+              match bhd.prevblockhash with
+              | None -> false
+              | Some(ph,_) ->
+                 let pblkhght = Int64.sub blkhght 1L in
+                 let pblkh = DbBlockHeader.dbget ph in
+                 let pblkd = DbBlockDelta.dbget ph in
+                 process_delta_ctree_very_behind (n-1) ph pblkhght (pblkh,pblkd)
+      end
+    end
+  else
+    true (** very behind; take extreme measures **)
+
+let rec process_delta_ctree_history_real h blkhght blk =
   let (blkh,blkdel) = blk in
   let (bhd,_) = blkh in
   try
     if !Config.fullnode then (** ensure we have the full ledger before processing the block **)
       begin
         try
-          let lr = ctree_hashroot bhd.prevledger in
-          verifyledger_h lr []
+          let prevc1 = bhd.prevledger in
+          let prevc2 = (* remove temporary staked asset in case of pure burn *)
+            match bhd.pureburn with
+            | None -> prevc1
+            | Some(_,_) ->
+               match tx_octree_trans false false 1L ([(p2pkhaddr_addr bhd.stakeaddr,bhd.stakeassetid)],[]) (Some(prevc1)) with
+               | Some(prevledger2) -> prevledger2
+               | None -> raise (Failure("removing the temporary staked asset in pure burn case somehow (impossibly) left ledger empty"))
+          in
+          let lr = ctree_hashroot prevc2 in
+          verifyledger_h lr [];
         with _ ->
               match bhd.prevblockhash with
               | None -> ()
@@ -361,54 +467,72 @@ let rec process_delta_ctree h blkhght blk =
                    let pblkh = DbBlockHeader.dbget ph in
                    try
                      let pblkd = DbBlockDelta.dbget ph in
-                     process_delta_ctree ph pblkhght (pblkh,pblkd)
+                     process_delta_ctree_history_real ph pblkhght (pblkh,pblkd)
                    with Not_found ->
                      if not (List.exists (fun (_,k) -> k = ph) !missingdeltas) then missingdeltas := List.merge (fun (i,_) (j,_) -> compare i j) [(pblkhght,ph)] !missingdeltas;
-                     raise Exit
                  with Not_found ->
                    if not (List.exists (fun (_,k) -> k = ph) !missingheaders) then missingheaders := List.merge (fun (i,_) (j,_) -> compare i j) [(pblkhght,ph)] !missingheaders;
-                   raise Exit
       end;
-    List.iter
-      (fun stau ->
-        let txid = hashstx stau in
-        DbSTx.dbput txid stau)
-      blkdel.blockdelta_stxl;
-    begin
-      let prevc1 = ctree_of_block blk in
-      let prevc2 = (* remove temporary staked asset in case of pure burn *)
-        match bhd.pureburn with
-        | None -> prevc1
-        | Some(_,_) ->
-           match tx_octree_trans false false 1L ([(p2pkhaddr_addr bhd.stakeaddr,bhd.stakeassetid)],[]) (Some(prevc1)) with
-           | Some(prevledger2) -> prevledger2
-           | None -> raise (Failure("removing the temporary staked asset in pure burn case somehow (impossibly) left ledger empty"))
-      in
-      let prevc3 = load_expanded_ctree prevc2 in
-      let prevc = (* and now put the asset back into the expanded ctree before transofming *)
-        match bhd.pureburn with
-        | None -> prevc3
-        | Some(_,_) ->
-           let aid = bhd.stakeassetid in
-           let a = (aid,0L,None,Currency(0L)) in
-           match tx_octree_trans_ false false 162 [] [(addr_bitseq (p2pkhaddr_addr bhd.stakeaddr),a)] (Some(prevc3)) with
-           | Some(prevc) -> prevc
-           | None -> raise (Failure("impossible"))
-      in
-      let (cstk,txl) = txl_of_block blk in (*** the coinstake tx is performed last, i.e., after the txs in the block. ***)
-      try
-        match tx_octree_trans false false blkhght cstk (txl_octree_trans false false blkhght txl (Some(prevc))) with (*** "false false" disallows database lookups and remote requests ***)
-        | Some(newc) -> ignore (save_ctree_elements newc)
-        | None -> raise (Failure("transformed tree was empty, although block seemed to be valid"))
-      with MaxAssetsAtAddress -> raise (Failure("transformed tree would hold too many assets at an address"))
-    end
+    process_delta_ctree_real h blkhght blk bhd blkdel
+  with _ -> ()
+
+let process_delta_ctree_history h blkhght blk =
+  let mc = !Config.maxconns in
+  Config.maxconns := 0;
+  log_string (Printf.sprintf "Stopping network while catching up.\n");
+  disconnect_completely();
+  process_delta_ctree_history_real h blkhght blk;
+  log_string (Printf.sprintf "Restarting network.\n");
+  initnetwork !Utils.log;
+  Config.maxconns := mc;
+  Thread.exit()
+
+let rec process_delta_ctree h blkhght blk =
+  let (blkh,blkdel) = blk in
+  let (bhd,_) = blkh in
+  try
+    if !Config.fullnode then (** ensure we have the full ledger before processing the block **)
+      begin
+        try
+          let prevc1 = bhd.prevledger in
+          let prevc2 = (* remove temporary staked asset in case of pure burn *)
+            match bhd.pureburn with
+            | None -> prevc1
+            | Some(_,_) ->
+               match tx_octree_trans false false 1L ([(p2pkhaddr_addr bhd.stakeaddr,bhd.stakeassetid)],[]) (Some(prevc1)) with
+               | Some(prevledger2) -> prevledger2
+               | None -> raise (Failure("removing the temporary staked asset in pure burn case somehow (impossibly) left ledger empty"))
+          in
+          let lr = ctree_hashroot prevc2 in
+          verifyledger_h lr [];
+        with _ ->
+              match bhd.prevblockhash with
+              | None -> ()
+              | Some(ph,_) ->
+                 let pblkhght = Int64.sub blkhght 1L in
+                 try
+                   let pblkh = DbBlockHeader.dbget ph in
+                   try
+                     let pblkd = DbBlockDelta.dbget ph in
+                     if process_delta_ctree_very_behind 100 ph pblkhght (pblkh,pblkd) then
+                       begin
+                         ignore (Thread.create (fun () -> process_delta_ctree_history ph pblkhght (pblkh,pblkd)) ())
+                       end
+                     else (** not too far behind, so reprocess the recent ones **)
+                       process_delta_ctree ph pblkhght (pblkh,pblkd)
+                   with Not_found ->
+                     if not (List.exists (fun (_,k) -> k = ph) !missingdeltas) then missingdeltas := List.merge (fun (i,_) (j,_) -> compare i j) [(pblkhght,ph)] !missingdeltas;
+                 with Not_found ->
+                   if not (List.exists (fun (_,k) -> k = ph) !missingheaders) then missingheaders := List.merge (fun (i,_) (j,_) -> compare i j) [(pblkhght,ph)] !missingheaders;
+      end;
+    process_delta_ctree_real h blkhght blk bhd blkdel
   with _ -> ()
 
 (*** assumes ancestors have been validated and info for parent is on validheadervals and entry on validblockvals;
  also assumes header has been validated and info for it is on validheadervals;
  but also does some extra checking in ensure_prev_block_valid_p
  ***)
-let rec process_delta sout validate forw dbp (lbh,ltxh) h ((bhd,bhs),bd) thtr tht sgtr sgt currhght csm tar lmedtm burned txid1 vout1 =
+let rec process_delta_real sout validate forw dbp (lbh,ltxh) h ((bhd,bhs),bd) thtr tht sgtr sgt currhght csm tar lmedtm burned txid1 vout1 =
   if validate then
     begin
       if invalid_or_blacklisted_p h then
@@ -458,8 +582,8 @@ let rec process_delta sout validate forw dbp (lbh,ltxh) h ((bhd,bhs),bd) thtr th
         else
           begin
             log_string (Printf.sprintf "Refusing to process delta (%Ld) %s since do not know header valid.\n" currhght (hashval_hexstring h));
-            process_header sout validate forw dbp (lbh,ltxh) h (bhd,bhs) currhght csm tar lmedtm burned txid1 vout1;
-            if Db_validheadervals.dbexists lh then process_delta sout validate forw dbp (lbh,ltxh) h ((bhd,bhs),bd) thtr tht sgtr sgt currhght csm tar lmedtm burned txid1 vout1
+            process_header_real sout validate forw dbp (lbh,ltxh) h (bhd,bhs) currhght csm tar lmedtm burned txid1 vout1;
+            if Db_validheadervals.dbexists lh then process_delta_real sout validate forw dbp (lbh,ltxh) h ((bhd,bhs),bd) thtr tht sgtr sgt currhght csm tar lmedtm burned txid1 vout1
           end
     end
   else
@@ -467,11 +591,15 @@ let rec process_delta sout validate forw dbp (lbh,ltxh) h ((bhd,bhs),bd) thtr th
       Db_validheadervals.dbput (hashpair lbh ltxh) (bhd.tinfo,bhd.timestamp,bhd.newledgerroot,bhd.newtheoryroot,bhd.newsignaroot);
       Db_validblockvals.dbput (hashpair lbh ltxh) true;
     end
-	      
+
+let process_delta sout validate forw dbp (lbh,ltxh) h ((bhd,bhs),bd) thtr tht sgtr sgt currhght csm tar lmedtm burned txid1 vout1 =
+  processing_wrapper
+    (fun () -> process_delta_real sout validate forw dbp (lbh,ltxh) h ((bhd,bhs),bd) thtr tht sgtr sgt currhght csm tar lmedtm burned txid1 vout1)
+
 (*** assumes ancestors have been validated and info for parent is on validheadervals and entry on validblockvals;
  but also does some extra checking in ensure_prev_block_valid_p
  ***)
-let rec process_block sout validate forw dbp (lbh,ltxh) h ((bhd,bhs),bd) thtr tht sgtr sgt currhght csm tar lmedtm burned txid1 vout1 =
+let process_block_real sout validate forw dbp (lbh,ltxh) h ((bhd,bhs),bd) thtr tht sgtr sgt currhght csm tar lmedtm burned txid1 vout1 =
   if validate then
     begin
       if invalid_or_blacklisted_p h then
@@ -533,8 +661,8 @@ let rec process_block sout validate forw dbp (lbh,ltxh) h ((bhd,bhs),bd) thtr th
             end
         else
           begin
-            process_header sout validate forw dbp (lbh,ltxh) h (bhd,bhs) currhght csm tar lmedtm burned txid1 vout1;
-            process_delta sout validate forw dbp (lbh,ltxh) h ((bhd,bhs),bd) thtr tht sgtr sgt currhght csm tar lmedtm burned txid1 vout1
+            process_header_real sout validate forw dbp (lbh,ltxh) h (bhd,bhs) currhght csm tar lmedtm burned txid1 vout1;
+            process_delta_real sout validate forw dbp (lbh,ltxh) h ((bhd,bhs),bd) thtr tht sgtr sgt currhght csm tar lmedtm burned txid1 vout1;
           end
     end
   else
@@ -542,6 +670,10 @@ let rec process_block sout validate forw dbp (lbh,ltxh) h ((bhd,bhs),bd) thtr th
       Db_validheadervals.dbput (hashpair lbh ltxh) (bhd.tinfo,bhd.timestamp,bhd.newledgerroot,bhd.newtheoryroot,bhd.newsignaroot);
       Db_validblockvals.dbput (hashpair lbh ltxh) true;
     end
+
+let process_block sout validate forw dbp (lbh,ltxh) h ((bhd,bhs),bd) thtr tht sgtr sgt currhght csm tar lmedtm burned txid1 vout1 =
+  processing_wrapper
+    (fun () -> process_block_real sout validate forw dbp (lbh,ltxh) h ((bhd,bhs),bd) thtr tht sgtr sgt currhght csm tar lmedtm burned txid1 vout1)
 
 let reprocessblock oc h lbk ltx =
   let lh = hashpair lbk ltx in
@@ -857,7 +989,7 @@ let initialize_pfg_from_ltc sout lblkh =
   missingdeltas := List.filter (fun (_,h) -> Hashtbl.mem liveblocks h) !missingdeltas
                                
 let collect_inv m cnt tosend txinv =
-  if DbCTreeElt.dbexists !genesisledgerroot then (tosend := (int_of_msgtype CTreeElement,!genesisledgerroot)::!tosend; incr cnt);
+  if (DbCTreeElt.dbexists !genesisledgerroot) || (DbCTreeAtm.dbexists !genesisledgerroot) then (tosend := (int_of_msgtype CTreeElement,!genesisledgerroot)::!tosend; incr cnt);
   let (lastchangekey,ctips0l) = ltcpfgstatus_dbget !ltc_bestblock in
   let inclh : (hashval,unit) Hashtbl.t = Hashtbl.create 5000 in
   let collect_inv_rec_blocks tosend =
@@ -873,7 +1005,7 @@ let collect_inv m cnt tosend txinv =
 		  Hashtbl.add inclh bh ();
 		  tosend := (int_of_msgtype Headers,bh)::!tosend;
 		  incr cnt;
-		  if DbCTreeElt.dbexists bhd.newledgerroot then (tosend := (int_of_msgtype CTreeElement,bhd.newledgerroot)::!tosend; incr cnt);
+		  if (DbCTreeElt.dbexists bhd.newledgerroot) || (DbCTreeAtm.dbexists bhd.newledgerroot) then (tosend := (int_of_msgtype CTreeElement,bhd.newledgerroot)::!tosend; incr cnt);
 		  if DbBlockDelta.dbexists bh then (tosend := (int_of_msgtype Blockdelta,bh)::!tosend; incr cnt);
 		with Not_found -> ()
 	      end)
@@ -1216,22 +1348,6 @@ Hashtbl.add msgtype_handler GetInvNbhd
 	 collect_header_inv_nbhd 8 h tosend;
 	 if not (!tosend = []) then send_inv_to_one !tosend cs
        end
-    | CTreeElement ->
-       begin
-	 try
-	   let c = DbCTreeElt.dbget h in
-	   let tosend = ref [] in
-	   collect_ctree_inv_nbhd c tosend;
-	   if not (!tosend = []) then send_inv_to_one !tosend cs
-	 with Not_found ->
-	   ()
-       end
-    | HConsElement ->
-       begin
-	 let tosend = ref [] in
-	 collect_hcons_inv_nbhd 8 h tosend;
-	 if not (!tosend = []) then send_inv_to_one !tosend cs
-       end
     | _ -> ());;
 
 Hashtbl.add msgtype_handler Inv
@@ -1387,10 +1503,10 @@ let remove_from_txpool txid =
   with Not_found -> ()
                       
 let savetxtopool_real txid stau =
-  let ch = open_out_gen [Open_creat;Open_append;Open_wronly;Open_binary] 0o660 (Filename.concat (datadir()) "txpool") in
+  let ch = open_out_gen [Open_creat;Open_append;Open_wronly;Open_binary] 0o600 (Filename.concat (datadir()) "txpool") in
   seocf (seo_prod seo_hashval seo_stx seoc (txid,stau) (ch,None));
   close_out ch;
-  let ch = open_out_gen [Open_creat;Open_append;Open_wronly;Open_binary] 0o660 (Filename.concat (datadir()) "txpooltm") in
+  let ch = open_out_gen [Open_creat;Open_append;Open_wronly;Open_binary] 0o600 (Filename.concat (datadir()) "txpooltm") in
   seocf (seo_prod seo_int64 seo_hashval seoc (Int64.of_float (Unix.time()),txid) (ch,None));
   close_out ch;;
 

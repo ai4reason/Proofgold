@@ -96,55 +96,6 @@ let fstohash a =
 
 let stkth : Thread.t option ref = ref None;;
 
-let initnetwork sout =
-  begin
-    try
-      let notlistening = ref true in
-      begin
-	match !Config.ip with
-	| Some(ip) ->
-	    let l = openlistener ip !Config.port 5 in
-	    let efn = !exitfn in
-	    exitfn := (fun n -> shutdown_close l; efn n);
-	    Printf.fprintf sout "Listening for incoming connections via ip %s on port %d.\n" ip !Config.port;
-	    flush sout;
-	    notlistening := false;
-	    netlistenerth := Some(Thread.create netlistener l)
-	| None -> ()
-      end;
-      begin
-	match !Config.onion with
-	| Some(onionaddr) ->
-	    let l = openonionlistener onionaddr !Config.onionlocalport !Config.onionremoteport 5 in
-	    let efn = !exitfn in
-	    exitfn := (fun n -> shutdown_close l; efn n);
-	    Printf.fprintf sout "Listening for incoming connections via tor hidden service %s using port %d.\n" onionaddr !Config.onionremoteport;
-	    flush sout;
-	    notlistening := false;
-	    onionlistenerth := Some(Thread.create onionlistener l)
-	| None -> ()
-      end;
-      if !notlistening then
-	begin
-	  Printf.fprintf sout "Not listening for incoming connections.\n";
-	  Printf.fprintf sout "If you want Proofgold to listen for incoming connections set ip to your ip address\n";
-	  Printf.fprintf sout "using ip=... in proofgold.conf or -ip=... on the command line.\n";
-	  Printf.fprintf sout "By default ip listeners use port 21805.\n";
-	  Printf.fprintf sout "This can be changed by setting port=... in proofgold.conf or -port=... on the command line.\n";
-	  Printf.fprintf sout "To listen as a tor hidden service set onion address\n";
-	  Printf.fprintf sout "using onion=... in proofgold.conf or -onion=... on the command line.\n";
-	  Printf.fprintf sout "By default onion listeners listen via the advertised port 21808.\n";
-	  Printf.fprintf sout "This can be changed by setting onionremoteport=... in proofgold.conf or -onionremoteport=... on the command line.\n";
-	  Printf.fprintf sout "By default onion listeners use the local (unadvertised) port 21807.\n";
-	  Printf.fprintf sout "This can be changed by setting onionlocalport=... in proofgold.conf or -onionlocalport=... on the command line.\n";
-	  flush sout
-	end
-    with _ -> ()
-  end;
-  let efn = !exitfn in
-  exitfn := (fun n -> (try saveknownpeers() with _ -> ()); efn n);
-  netseeker ();;
-
 let ltc_listener_th : Thread.t option ref = ref None;;
 
 let ltc_init sout =
@@ -247,7 +198,7 @@ let rec dbledgersnapshot (ctreeeltfile,hconseltfile,assetfile) fin supp h =
     begin
       snapshot_fin_add fin h;
       try
-	let c = DbCTreeElt.dbget h in
+	let c = expand_ctree_atom_or_element false h in
 	seocf (seo_ctree seoc c (ctreeeltfile,None));
 	dbledgersnapshot_ctree (ctreeeltfile,hconseltfile,assetfile) fin supp c
       with Not_found ->
@@ -285,7 +236,7 @@ let dbledgersnapshot_shards (ctreeeltfile,hconseltfile,assetfile) fin supp h sl 
     begin
       snapshot_fin_add fin h;
       try
-	let c = DbCTreeElt.dbget h in
+	let c = expand_ctree_atom_or_element false h in
 	seocf (seo_ctree seoc c (ctreeeltfile,None));
 	dbledgersnapshot_ctree_shards (ctreeeltfile,hconseltfile,assetfile) fin supp c sl
       with Not_found ->
@@ -781,7 +732,7 @@ let initialize_commands () =
 		     Printf.sprintf "04%s%s" (md256_hexstring (big_int_md256 x)) (md256_hexstring (big_int_md256 y))
                  in
                  let idfn = Filename.concat (datadir()) "ids" in
-                 let s = open_out_gen [Open_creat;Open_append;Open_wronly] 0o660 idfn in
+                 let s = open_out_gen [Open_creat;Open_append;Open_wronly] 0o600 idfn in
                  Printf.fprintf s "%s\n%s\n%s\n%s\n" u a pubkeyhex (Cryptocurr.pfgwif k b);
                  close_out s;
                  Hashtbl.add identities u (b,k,(x,y),alpha)
@@ -830,7 +781,7 @@ let initialize_commands () =
                       if l = "OK" then
                         begin
                           let idfn = Filename.concat (datadir()) "ids" in
-                          let s = open_out_gen [Open_creat;Open_append;Open_wronly] 0o660 idfn in
+                          let s = open_out_gen [Open_creat;Open_append;Open_wronly] 0o600 idfn in
                           Printf.fprintf s "%s\n%s\n%s\n%s\n" u a pubkeyhex (Cryptocurr.pfgwif k b);
                           close_out s;
                           Printf.fprintf oc "Identity seems to have been successfully registered and locally saved.\n";
@@ -876,7 +827,7 @@ let initialize_commands () =
                let alpha = p2pkhaddr_addr alpha1 in
                let a = Cryptocurr.addr_pfgaddrstr alpha in
                let idfn = Filename.concat (datadir()) "otherids" in
-               let s = open_out_gen [Open_creat;Open_append;Open_wronly] 0o660 idfn in
+               let s = open_out_gen [Open_creat;Open_append;Open_wronly] 0o600 idfn in
                Printf.fprintf s "%s\n%s\n%s\n" u a l;
                close_out s;
                Printf.fprintf oc "Username: %s\nPubkey: %s\nAddress: %s\n" u a l;
@@ -1010,7 +961,7 @@ let initialize_commands () =
                  let fromuser = input_line inc in
                  let fromtm = input_line inc in
                  let emsghex = input_line inc in
-                 let f = open_out_gen [Open_creat;Open_append;Open_wronly] 0o660 fn in
+                 let f = open_out_gen [Open_creat;Open_append;Open_wronly] 0o600 fn in
                  Printf.fprintf f "From: %s\nDate: %s\n" fromuser fromtm;
                  try
                    let (x,y) = identity_pubkey fromuser in
@@ -1191,7 +1142,7 @@ let initialize_commands () =
 	    | Exit -> close_in ch; Printf.fprintf oc "A nonce was already declared.\nNo change was made.\n"
 	    | End_of_file ->
 		close_in ch;
-		let ch = open_out_gen [Open_append] 0o660 f in
+		let ch = open_out_gen [Open_append] 0o600 f in
 		let h = big_int_md256 (strong_rand_256()) in
 		let nonce = hashval_hexstring h in
 		Printf.fprintf ch "\nNonce %s\n" nonce;
@@ -1216,7 +1167,7 @@ let initialize_commands () =
 	    | Exit -> close_in ch; Printf.fprintf oc "A publisher was already declared.\nNo change was made.\n"
 	    | End_of_file ->
 		close_in ch;
-		let ch = open_out_gen [Open_append] 0o660 f in
+		let ch = open_out_gen [Open_append] 0o600 f in
 		Printf.fprintf ch "\nPublisher %s\n" gammas;
 		close_out ch
 	    | e -> close_in ch; raise e
@@ -3249,7 +3200,13 @@ let initialize_commands () =
 	      print_jsonval oc j;
 	      Printf.fprintf oc "\n"
 	    with Not_found ->
-	      if DbCTreeElt.dbexists k then
+              if DbCTreeAtm.dbexists k then
+		begin
+		  let j = Commands.query_at_block h None k (-1L) in
+		  print_jsonval oc j;
+		  Printf.fprintf oc "\n"
+		end
+	      else if DbCTreeElt.dbexists k then
 		begin
 		  let j = Commands.query_at_block h None k (-1L) in
 		  print_jsonval oc j;
@@ -3866,6 +3823,11 @@ let initialize_commands () =
     (fun oc al ->
       match al with
       | [h] -> Commands.printhconselt oc (hexstring_hashval h)
+      | _ -> raise BadCommandForm);
+  ac "printctreeatm" "printctreeatm <hashval>" "Print information about a ctree atom with the given Merkle root."
+    (fun oc al ->
+      match al with
+      | [h] -> Commands.printctreeatm oc (hexstring_hashval h)
       | _ -> raise BadCommandForm);
   ac "printctreeelt" "printctreeelt <hashval>" "Print information about a ctree element with the given Merkle root."
     (fun oc al ->
@@ -5041,7 +5003,7 @@ let do_command oc l =
 
 let init_ledger () =
   let inith = !genesisledgerroot in
-  if not (DbCTreeElt.dbexists inith) then
+  if not (DbCTreeAtm.dbexists inith) then
     begin
       let hfthy = Checking.hfthy in
       let hfthyid = Checking.hfthyid in
@@ -5063,7 +5025,7 @@ let init_ledger () =
       match tx_octree_trans false false 0L inittau None with
       | None -> Printf.printf "Something is terribly wrong.\n"; flush stdout; !exitfn 1
       | Some(initc) ->
-         let inith2 = save_ctree_elements initc in
+         let inith2 = save_ctree_atoms initc in
          if not (inith = inith2) then
            (Printf.printf "Initial ledger hash root mismatch.\nExpected %s\nFound %s\n" (hashval_hexstring inith) (hashval_hexstring inith2); flush stdout; !exitfn 1);
          match txout_update_ottree !inittauout None with
@@ -5109,6 +5071,10 @@ let initialize () =
     DbSTx.dbinit();
     DbHConsElt.dbinit();
     DbHConsEltAt.dbinit();
+    DbCTreeLeaf.dbinit();
+    DbCTreeLeafAt.dbinit();
+    DbCTreeAtm.dbinit();
+    DbCTreeAtmAt.dbinit();
     DbCTreeElt.dbinit();
     DbCTreeEltAt.dbinit();
     DbBlockHeader.dbinit();
@@ -5628,6 +5594,13 @@ let main () =
   in
   if !Config.daemon then
     begin
+      if !Config.rpcpass = "changeme" then
+        begin
+          Printf.printf "Refusing to run as a daemon until rpcpass is set\n";
+          Printf.printf "Add the following lines to your proofgold.conf file:\n";
+          Printf.printf "rpcuser='...'\nrpcpass='...'\nwhere the pass is a secure password.\n";
+          !Utils.exitfn 1;
+        end;
       match Unix.fork() with
       | 0 ->
 	  initialize();

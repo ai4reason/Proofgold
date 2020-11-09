@@ -1033,6 +1033,7 @@ let rec collect_header_inv_nbhd m h tosend =
 and collect_header_inv_nbhd_2 m h bhd tosend =
   tosend := (int_of_msgtype Headers,h)::!tosend;
   if DbCTreeElt.dbexists bhd.newledgerroot then tosend := (int_of_msgtype CTreeElement,bhd.newledgerroot)::!tosend;
+  if DbCTreeAtm.dbexists bhd.newledgerroot then tosend := (int_of_msgtype CTreeElement,bhd.newledgerroot)::!tosend; (** slightly dishonest, but don't want a new message type for atoms **)
   if DbBlockDelta.dbexists h then tosend := (int_of_msgtype Blockdelta,h)::!tosend;
   begin
     match bhd.prevblockhash with

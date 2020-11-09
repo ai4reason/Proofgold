@@ -14,3 +14,5 @@ val htree_create : bool list -> 'a -> 'a htree
 val htree_insert : 'a htree -> bool list -> 'a -> 'a htree
 val ohtree_hashroot : ('a -> hashval option) -> int -> 'a htree option -> hashval option
 
+val seo_htree : ((int -> int -> 'a -> 'a) -> 'b -> 'a -> 'a) -> ((int -> int -> 'a -> 'a) -> 'b htree -> 'a -> 'a)
+val sei_htree : ((int -> 'a -> int * 'a) -> 'a -> 'b * 'a) -> ((int -> 'a -> int * 'a) -> 'a -> 'b htree * 'a)

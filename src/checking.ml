@@ -4070,5 +4070,5 @@ let rec hf_trm_mg_str m vl =
   | Eq(_,m1,m2) -> Printf.sprintf "(%s = %s)" (hf_trm_mg_str m1 vl) (hf_trm_mg_str m2 vl)
 
 let hf_mg_prob c p =
-  Printf.fprintf c "Theorem conj: %s\n" (hf_trm_mg_str p [])
+  Printf.fprintf c "Theorem conj: %s.\n" (hf_trm_mg_str p [])
                  

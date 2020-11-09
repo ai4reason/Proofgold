@@ -28,6 +28,8 @@ let hashcache_tag : (hashval * int32,hashval) Hashtbl.t = Hashtbl.create 100
 let hashcache_pair : (hashval * hashval,hashval) Hashtbl.t = Hashtbl.create 100
 let hashcache_payaddr : (payaddr,hashval) Hashtbl.t = Hashtbl.create 100
 
+let zerohashval : hashval = (0l,0l,0l,0l,0l,0l,0l,0l)
+
 let clear_hashcache () =
   Hashtbl.clear hashcache_tag;
   Hashtbl.clear hashcache_pair;
@@ -407,7 +409,7 @@ let hashpair x y =
     let h = getcurrhashval() in
     if !hashcaching then Hashtbl.add hashcache_pair (x,y) h;
     h
-
+        
 let hashpubkey x y =
   let (x0,x1,x2,x3,x4,x5,x6,x7) = x in
   let (y0,y1,y2,y3,y4,y5,y6,y7) = y in

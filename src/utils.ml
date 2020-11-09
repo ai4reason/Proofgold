@@ -9,7 +9,7 @@ let exitfn : (int -> unit) ref = ref (fun n -> exit n);;
 let log : out_channel ref = ref stderr
 
 let openlog () =
-  log := open_out_gen [Open_wronly;Open_creat;Open_append] 0o644 (!Config.datadir ^ (if !Config.testnet then "/testnet/debug.log" else "/debug.log"))
+  log := open_out_gen [Open_wronly;Open_creat;Open_append] 0o600 (!Config.datadir ^ (if !Config.testnet then "/testnet/debug.log" else "/debug.log"))
 
 let closelog () =
   close_out !log

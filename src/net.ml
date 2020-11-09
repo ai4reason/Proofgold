@@ -1400,3 +1400,63 @@ let liberally_accept_elements_p tm =
 let localnewheader_sent : (hashval,int) Hashtbl.t = Hashtbl.create 100
 let localnewdelta_sent : (hashval,int) Hashtbl.t = Hashtbl.create 100
 
+let disconnect_completely () =
+  List.iter
+    (fun (clth,csth,(s,sin,sout,g)) ->
+      (try
+         shutdown_close s;
+         close_in sin;
+         close_out sout;
+       with _ -> ());
+      g := None)
+    !netconns
+                
+let initnetwork sout =
+  begin
+    try
+      let notlistening = ref true in
+      begin
+	match !Config.ip with
+	| Some(ip) ->
+	    let l = openlistener ip !Config.port 5 in
+	    let efn = !exitfn in
+	    exitfn := (fun n -> shutdown_close l; efn n);
+	    Printf.fprintf sout "Listening for incoming connections via ip %s on port %d.\n" ip !Config.port;
+	    flush sout;
+	    notlistening := false;
+	    netlistenerth := Some(Thread.create netlistener l)
+	| None -> ()
+      end;
+      begin
+	match !Config.onion with
+	| Some(onionaddr) ->
+	    let l = openonionlistener onionaddr !Config.onionlocalport !Config.onionremoteport 5 in
+	    let efn = !exitfn in
+	    exitfn := (fun n -> shutdown_close l; efn n);
+	    Printf.fprintf sout "Listening for incoming connections via tor hidden service %s using port %d.\n" onionaddr !Config.onionremoteport;
+	    flush sout;
+	    notlistening := false;
+	    onionlistenerth := Some(Thread.create onionlistener l)
+	| None -> ()
+      end;
+      if !notlistening then
+	begin
+	  Printf.fprintf sout "Not listening for incoming connections.\n";
+	  Printf.fprintf sout "If you want Proofgold to listen for incoming connections set ip to your ip address\n";
+	  Printf.fprintf sout "using ip=... in proofgold.conf or -ip=... on the command line.\n";
+	  Printf.fprintf sout "By default ip listeners use port 21805.\n";
+	  Printf.fprintf sout "This can be changed by setting port=... in proofgold.conf or -port=... on the command line.\n";
+	  Printf.fprintf sout "To listen as a tor hidden service set onion address\n";
+	  Printf.fprintf sout "using onion=... in proofgold.conf or -onion=... on the command line.\n";
+	  Printf.fprintf sout "By default onion listeners listen via the advertised port 21808.\n";
+	  Printf.fprintf sout "This can be changed by setting onionremoteport=... in proofgold.conf or -onionremoteport=... on the command line.\n";
+	  Printf.fprintf sout "By default onion listeners use the local (unadvertised) port 21807.\n";
+	  Printf.fprintf sout "This can be changed by setting onionlocalport=... in proofgold.conf or -onionlocalport=... on the command line.\n";
+	  flush sout
+	end
+    with _ -> ()
+  end;
+  let efn = !exitfn in
+  exitfn := (fun n -> (try saveknownpeers() with _ -> ()); efn n);
+  netseeker ()
+

@@ -14,10 +14,6 @@ open Tx
 open Ctre
 open Logic
 
-(***
-val addnode : string -> int -> bool
-***)
-
 val walletkeys_staking : (Z.t * bool * (Z.t * Z.t) * string * p2pkhaddr * string) list ref
 val walletkeys_nonstaking : (Z.t * bool * (Z.t * Z.t) * string * p2pkhaddr * string) list ref
 val walletkeys_staking_fresh : (Z.t * bool * (Z.t * Z.t) * string * p2pkhaddr * string) list ref
@@ -40,6 +36,7 @@ val save_wallet : unit -> unit
 val printassets : out_channel -> unit
 val printassets_in_ledger : out_channel -> hashval -> int64 -> unit
 val printctreeinfo : out_channel -> hashval -> unit
+val printctreeatm : out_channel -> hashval -> unit
 val printctreeelt : out_channel -> hashval -> unit
 val printhconselt : out_channel -> hashval -> unit
 val printasset : out_channel -> hashval -> unit
@@ -101,5 +98,3 @@ val createhtlc2 : md160 -> md160 -> int32 -> bool -> hashval -> p2shaddr * int l
 val createhtlc : md160 -> md160 -> int32 -> bool -> hashval -> p2shaddr * int list * hashval
 val createmultisig2 : int -> (string * ((Z.t * Z.t) * bool)) list -> p2shaddr * int list
 val createmultisig : int -> jsonval -> p2shaddr * int list
-
-

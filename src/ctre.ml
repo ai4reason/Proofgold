@@ -905,6 +905,42 @@ let nehlist_lookup_neg_prop_owner strct exp req hl =
   | Some(_) -> true
   | None -> false
 
+module DbCTreeLeaf =
+  Dbbasic
+    (struct
+      type t = ctree
+      let basedir = "ctreeleaf"
+      let seival = sei_ctree seic
+      let seoval = seo_ctree seoc
+    end)
+
+module DbCTreeLeafAt =
+  Dbbasic
+    (struct
+      type t = bool list
+      let basedir = "ctreeleafat"
+      let seival = sei_list sei_bool seic
+      let seoval = seo_list seo_bool seoc
+    end)
+
+module DbCTreeAtm =
+  Dbbasic
+    (struct
+      type t = ctree
+      let basedir = "ctreeatm"
+      let seival = sei_ctree seic
+      let seoval = seo_ctree seoc
+    end)
+    
+module DbCTreeAtmAt =
+  Dbbasic
+    (struct
+      type t = bool list
+      let basedir = "ctreeatmat"
+      let seival = sei_list sei_bool seic
+      let seoval = seo_list seo_bool seoc
+    end)
+
 module DbCTreeElt =
   Dbbasic
     (struct
@@ -922,6 +958,51 @@ module DbCTreeEltAt =
       let seival = sei_list sei_bool seic
       let seoval = seo_list seo_bool seoc
     end)
+    
+let save_ctree_leaf r tr pl =
+  DbCTreeLeaf.dbput r tr;
+  if !Config.extraindex then DbCTreeLeafAt.dbput r (List.rev pl)
+
+let save_ctree_atom r tr pl =
+  DbCTreeAtm.dbput r tr;
+  if !Config.extraindex then DbCTreeAtmAt.dbput r (List.rev pl)
+                                                
+let rec save_ctree_atoms_a tr pl =
+  match tr with
+  | CLeaf(bl,hl) ->
+     let (h,l) = save_nehlist_elements hl (bitseq_addr (((List.rev pl) @ bl))) in
+     let h2 = if l = 1 then h else (hashtag h (Int32.of_int (4224+l))) in (*** commit to the number of assets held, but treating 1 in a special way to maintain compatibility with the initial ledger ***)
+     let r = List.fold_right
+	       (fun b h ->
+	         if b then
+		   hashopair2 None h
+	         else
+		   hashopair1 h None
+	       )
+	       bl h2 (*** the h2 is the combination of h with the commitment to the length of l ***)
+     in
+     let tr2 = CLeaf(bl,NehHash(h,l)) in (*** the h is the key to the first hcons element, without commitment to l ***)
+     save_ctree_leaf r tr2 pl;
+     r
+  | CLeft(trl) ->
+     let hl = save_ctree_atoms_a trl (false::pl) in
+     let r = hashopair1 hl None in
+     save_ctree_atom r (CLeft(CHash(hl))) pl;
+     r
+  | CRight(trr) ->
+     let hr = save_ctree_atoms_a trr (true::pl) in
+     let r = hashopair2 None hr in
+     save_ctree_atom r (CRight(CHash(hr))) pl;
+     r
+  | CBin(trl,trr) ->
+     let hl = save_ctree_atoms_a trl (false::pl) in
+     let hr = save_ctree_atoms_a trr (true::pl) in
+     let r = hashopair1 hl (Some(hr)) in
+     save_ctree_atom r (CBin(CHash(hl),CHash(hr))) pl;
+     r
+  | CHash(r) -> r
+
+let save_ctree_atoms tr = save_ctree_atoms_a tr []
 
 let rec ctree_element_a tr i =
   if i > 0 then
@@ -1099,21 +1180,43 @@ let get_ctree_element h =
     broadcast_requestdata GetCTreeElement h;
     raise GettingRemoteData
 
+let get_ctree_atom_or_element h =
+  try
+    DbCTreeAtm.dbget h
+  with
+  | Not_found ->
+     try
+       DbCTreeLeaf.dbget h
+     with
+     | Not_found ->
+        get_ctree_element h
+
 let expand_ctree_element req h =
   if req then
     get_ctree_element h
   else
     DbCTreeElt.dbget h
 
+let expand_ctree_atom_or_element req h =
+  if req then
+    get_ctree_atom_or_element h
+  else
+    begin
+      try
+        DbCTreeAtm.dbget h
+      with Not_found ->
+        try
+          DbCTreeLeaf.dbget h
+        with Not_found ->
+          DbCTreeElt.dbget h
+    end
+
 let rec octree_S_inv exp req c =
   match c with
   | None -> (None,None)
   | Some(CHash(h)) ->
       if exp then
-	if req then
-	  octree_S_inv exp req (Some(get_ctree_element h))
-	else
-	  octree_S_inv exp req (Some(DbCTreeElt.dbget h))
+	octree_S_inv exp req (Some(expand_ctree_atom_or_element req h))
       else
 	raise Not_found
   | Some(CLeaf([],hl)) ->
@@ -1277,13 +1380,13 @@ let rec ctree_pre ocache exp req bl c d z =
       | CBin(c0,c1) -> if b then ctree_pre ocache exp req br c1 (d+1) z else ctree_pre ocache exp req br c0 (d+1) z
       | CHash(h) ->
 	  match ocache with
-	  | None -> ctree_pre None exp req bl (expand_ctree_element req h) d z
+	  | None -> ctree_pre None exp req bl (expand_ctree_atom_or_element req h) d z
 	  | Some(cache) ->
 	      begin
 		try
 		  Hashtbl.find cache h
 		with Not_found ->
-		  let r = ctree_pre ocache exp req bl (expand_ctree_element req h) d z in
+		  let r = ctree_pre ocache exp req bl (expand_ctree_atom_or_element req h) d z in
 		  Hashtbl.add cache h r;
 		  r
 	      end
@@ -1444,10 +1547,7 @@ let rec ctree_full_approx_addr exp req tr bl =
   | CLeaf(_,_) -> true (*** fully approximates because we know it's empty ***)
   | CHash(h) ->
       if exp then
-	if req then
-	  ctree_full_approx_addr exp req (get_ctree_element h) bl
-	else
-	  ctree_full_approx_addr exp req (DbCTreeElt.dbget h) bl
+	ctree_full_approx_addr exp req (expand_ctree_atom_or_element req h) bl
       else
 	false
   | CLeft(trl) ->
@@ -1475,10 +1575,7 @@ let rec ctree_supports_addr exp req tr bl =
   | CLeaf(_,_) -> true
   | CHash(h) ->
       if exp then
-	if req then
-	  ctree_supports_addr exp req (get_ctree_element h) bl
-	else
-	  ctree_supports_addr exp req (DbCTreeElt.dbget h) bl
+	ctree_supports_addr exp req (expand_ctree_atom_or_element req h) bl
       else
 	false
   | CLeft(trl) ->
@@ -1507,10 +1604,7 @@ let rec ctree_supports_asset exp req a tr bl =
   | CLeaf(_,_) -> false
   | CHash(h) ->
       if exp then
-	if req then
-	  ctree_supports_asset exp req a (get_ctree_element h) bl
-	else
-	  ctree_supports_asset exp req a (DbCTreeElt.dbget h) bl
+	ctree_supports_asset exp req a (expand_ctree_atom_or_element req h) bl
       else
 	false
   | CLeft(trl) ->
@@ -1541,10 +1635,7 @@ let rec ctree_lookup_asset_gen strct exp req p tr bl =
       None
   | CHash(h) ->
       if exp then
-	if req then
-	  ctree_lookup_asset_gen strct exp req p (get_ctree_element h) bl
-	else
-	  ctree_lookup_asset_gen strct exp req p (DbCTreeElt.dbget h) bl
+	ctree_lookup_asset_gen strct exp req p (expand_ctree_atom_or_element req h) bl
       else
 	None
   | CLeft(trl) ->
@@ -1578,10 +1669,7 @@ let rec ctree_lookup_addr_assets exp req tr bl =
   | CLeaf(_,_) -> HNil
   | CHash(h) ->
       if exp then
-	if req then
-	  ctree_lookup_addr_assets exp req (get_ctree_element h) bl
-	else
-	  ctree_lookup_addr_assets exp req (DbCTreeElt.dbget h) bl
+	ctree_lookup_addr_assets exp req (expand_ctree_atom_or_element req h) bl
       else
 	raise NotSupported
   | CLeft(trl) ->
@@ -2266,6 +2354,36 @@ let octree_lub oc1 oc2 =
   | (None,None) -> None
   | _ -> raise (Failure "no lub for incompatible octrees")
 
+let rec ctree_expand_leaves_a tr pl =
+  let (r,tr) = ctree_expand_leaves_b tr pl in
+  try
+    let l = DbCTreeLeaf.dbget r in
+    (r,ctree_lub l tr)
+  with Not_found -> (r,tr)
+and ctree_expand_leaves_b tr pl =
+  match tr with
+  | CHash(h) -> (h,tr)
+  | CLeft(trl) ->
+     let (rl,trl) = ctree_expand_leaves_a trl (false::pl) in
+     let r = hashopair1 rl None in
+     (r,CLeft(trl))
+  | CRight(trr) ->
+     let (rr,trr) = ctree_expand_leaves_a trr (true::pl) in
+     let r = hashopair2 None rr in
+     (r,CRight(trr))
+  | CBin(trl,trr) -> (** at this point all hope is lost if a hash below is not in the database so don't bother handling exception **)
+     let (rl,trl) = ctree_expand_leaves_a trl (false::pl) in
+     let (rr,trr) = ctree_expand_leaves_a trr (true::pl) in
+     let r = hashopair2 (Some(rl)) rr in
+     (r,CBin(trl,trr))
+  | _ ->
+     let r = ctree_hashroot tr in
+     (r,tr)
+       
+let ctree_expand_leaves tr =
+  let (r,tr) = ctree_expand_leaves_a tr [] in
+  tr
+
 let rec load_expanded_ctree_a c i =
   if i > 0 then
     begin
@@ -2281,7 +2399,7 @@ and load_expanded_ctree c =
   try
     let c2 = load_expanded_ctree_a c 9 in
     let r = ctree_hashroot c2 in
-    let ce = DbCTreeElt.dbget r in
+    let ce = expand_ctree_atom_or_element false r in
     try
       ctree_lub c2 ce
     with IncompatibleCTrees ->
@@ -2291,6 +2409,10 @@ and load_expanded_ctree c =
           DbCTreeElt.dbdelete r;
           DbCTreeElt.dbpurge();
           if ctree_element_p ce then DbCTreeElt.dbput re ce;
+          DbCTreeAtm.dbdelete r;
+          DbCTreeAtm.dbpurge();
+          DbCTreeLeaf.dbdelete r;
+          DbCTreeLeaf.dbpurge();
           raise (Failure "CTree database problem. Tried to repair.")
         end;
       raise (Failure "Incompatible ledger tree elements; should not be possible")
@@ -2400,7 +2522,7 @@ let rec ctree_reduce_to_min_support n inpl outpl full c =
 		       (strip_bitseq_true0 full)
 		       c1)
 	  | CHash(h) -> (*** changed to expand in this case; so the name of the function is misleading ***)
-	      ctree_reduce_to_min_support n inpl outpl full (get_ctree_element h)
+	      ctree_reduce_to_min_support n inpl outpl full (get_ctree_atom_or_element h)
 	  | _ -> c
 	end
     end
@@ -2591,161 +2713,29 @@ let rec minimal_asset_supporting_ctree tr bl aid n =
       end
   | _ -> false;;
 
-let rec collect_hcons_inv_nbhd m h tosend =
-  if m > 0 then
-    begin
-      try
-	match DbHConsElt.dbget h with
-	| (ah,None) ->
-	    tosend := (int_of_msgtype HConsElement,h)::!tosend;
-	    if DbAsset.dbexists ah then tosend := (int_of_msgtype Asset,ah)::!tosend
-	| (ah,Some(k,_)) ->
-	    tosend := (int_of_msgtype HConsElement,h)::!tosend;
-	    if DbAsset.dbexists ah then tosend := (int_of_msgtype Asset,ah)::!tosend;
-	    collect_hcons_inv_nbhd (m-1) k tosend
-      with Not_found -> ()
-    end
-
-let rec collect_hlist_inv_nbhd hl tosend =
-  match hl with
-  | HHash(h,_) -> collect_hcons_inv_nbhd 1 h tosend
-  | HNil -> ()
-  | HCons(_,hr) -> collect_hlist_inv_nbhd hr tosend
-  | HConsH(ah,hr) ->
-      if DbAsset.dbexists ah then tosend := (int_of_msgtype Asset,ah)::!tosend;
-      collect_hlist_inv_nbhd hr tosend;;
-
-(** just go deeper as long as it is non branching; sometimes there are CHash nodes optionally above single leaves **)
-let rec collect_ctree_inv_nbhd_2 c tosend =
-  match c with
-  | CHash(h) ->
-      begin
-	try 
-	  let c = DbCTreeElt.dbget h in
-	  tosend := (int_of_msgtype CTreeElement,h)::!tosend;
-	  collect_ctree_inv_nbhd_2 c tosend
-	with Not_found -> ()
-      end
-  | CLeft(c0) -> collect_ctree_inv_nbhd_2 c0 tosend
-  | CRight(c1) -> collect_ctree_inv_nbhd_2 c1 tosend
-  | CBin(c0,c1) -> ()
-  | CLeaf(_,hl) -> collect_hlist_inv_nbhd (nehlist_hlist hl) tosend;;
-
-let rec collect_ctree_inv_nbhd c tosend =
-  match c with
-  | CHash(h) ->
-      begin
-	try 
-	  let c = DbCTreeElt.dbget h in
-	  tosend := (int_of_msgtype CTreeElement,h)::!tosend;
-	  collect_ctree_inv_nbhd_2 c tosend
-	with Not_found -> ()
-      end
-  | CLeft(c0) -> collect_ctree_inv_nbhd c0 tosend
-  | CRight(c1) -> collect_ctree_inv_nbhd c1 tosend
-  | CBin(c0,c1) -> collect_ctree_inv_nbhd c0 tosend; collect_ctree_inv_nbhd c1 tosend
-  | CLeaf(_,hl) -> collect_hlist_inv_nbhd (nehlist_hlist hl) tosend;;
-
 Hashtbl.add msgtype_handler GetHConsElement
     (fun (sin,sout,cs,ms) ->
-      let (h,_) = sei_hashval seis (ms,String.length ms,None,0,0) in
-      let i = int_of_msgtype GetHConsElement in
-      let tm = Unix.time() in
-      if not (recently_sent (i,h) tm cs.sentinv) then (*** don't resend ***)
-	try
-	  let hk = DbHConsElt.dbget h in
-	  let hksb = Buffer.create 100 in
-	  seosbf (seo_prod seo_hashval (seo_option (seo_prod seo_hashval seo_int8)) seosb hk (seo_hashval seosb h (hksb,None)));
-	  let hkser = Buffer.contents hksb in
-	  ignore (queue_msg cs HConsElement hkser);
-	  Hashtbl.replace cs.sentinv (i,h) tm
-	with Not_found -> ());;
+      let (_,_) = sei_hashval seis (ms,String.length ms,None,0,0) in
+      let _ = int_of_msgtype GetHConsElement in
+      ());; (** out of date **)
 
 Hashtbl.add msgtype_handler HConsElement
     (fun (sin,sout,cs,ms) ->
-      let (h,r) = sei_hashval seis (ms,String.length ms,None,0,0) in
-      let i = int_of_msgtype GetHConsElement in
-      if DbHConsElt.dbexists h then (*** if we already have it, abort, but still call hook if necessary ***)
-	begin
-	  let hei = int_of_msgtype HConsElement in
-	  try
-	    Hashtbl.find cs.itemhooks (hei,h) ();
-	    Hashtbl.remove cs.itemhooks (hei,h)
-	  with Not_found -> ()
-	end
-      else
-	let tm = Unix.time() in
-	if liberally_accept_elements_p tm || recently_requested (i,h) tm cs.invreq then (*** only continue if it was requested or we're liberally accepting elements to get the full ledger ***)
-          let (hk,_) = sei_prod sei_hashval (sei_option (sei_prod sei_hashval sei_int8)) seis r in
-	  let hkh =
-	    match hk with
-	    | (h1,None) -> hashtag h1 3l
-	    | (h1,Some(k1,l1)) -> hashtag (hashpair h1 k1) (Int32.of_int (4096+l1))
-	  in
-	  if hkh = h then
-	    begin
-  	      DbHConsElt.dbput h hk;
-	      Hashtbl.remove cs.invreq (i,h);
-	      let hei = int_of_msgtype HConsElement in
-	      try
-		Hashtbl.find cs.itemhooks (hei,h) ();
-		Hashtbl.remove cs.itemhooks (hei,h)
-	      with Not_found -> ()
-	    end
-          else (*** otherwise, it seems to be a misbehaving peer --  ignore for now ***)
-	    Utils.log_string (Printf.sprintf "misbehaving peer? [malformed HConsElement]\n")
-	else (*** if something unrequested was sent, then seems to be a misbehaving peer ***)
-	  Utils.log_string (Printf.sprintf "misbehaving peer? [unrequested HConsElement]\n"));;
+      let (_,_) = sei_hashval seis (ms,String.length ms,None,0,0) in
+      let _ = int_of_msgtype GetHConsElement in
+      ());; (** out of date **)
 	  
 Hashtbl.add msgtype_handler GetCTreeElement
     (fun (sin,sout,cs,ms) ->
-      let (h,_) = sei_hashval seis (ms,String.length ms,None,0,0) in
-      let i = int_of_msgtype GetCTreeElement in
-      let tm = Unix.time () in
-      if not (recently_sent (i,h) tm cs.sentinv) then (*** don't resend ***)
-	try
-	  let c = DbCTreeElt.dbget h in
-	  let csb = Buffer.create 100 in
-	  seosbf (seo_ctree seosb c (seo_hashval seosb h (csb,None)));
-	  let cser = Buffer.contents csb in
-	  ignore (queue_msg cs CTreeElement cser);
-	  Hashtbl.replace cs.sentinv (i,h) tm
-	with Not_found -> ());;
+      let (_,_) = sei_hashval seis (ms,String.length ms,None,0,0) in
+      let _ = int_of_msgtype GetCTreeElement in
+      ());; (** no longer sending/receiving CTreeElements **)
 
 Hashtbl.add msgtype_handler CTreeElement
     (fun (sin,sout,cs,ms) ->
-      let (h,r) = sei_hashval seis (ms,String.length ms,None,0,0) in
-      let i = int_of_msgtype GetCTreeElement in
-      if DbCTreeElt.dbexists h then (*** if we already have it, abort, but still call hook if necessary ***)
-	begin
-	  let cei = int_of_msgtype CTreeElement in
-	  let cci = int_of_msgtype CompleteCTree in
-	  try
-	    Hashtbl.find cs.itemhooks (cei,h) ();
-	    Hashtbl.remove cs.itemhooks (cei,h);
-	    Hashtbl.remove cs.itemhooks (cci,h)
-	  with Not_found -> ()
-	end
-      else
-	let tm = Unix.time () in
-	if liberally_accept_elements_p tm || recently_requested (i,h) tm cs.invreq then (*** only continue if it was requested or we're liberally accepting to get the full ledger ***)
-          let (c,_) = sei_ctree seis r in
-	  if ctree_element_p c && ctree_hashroot c = h then
-	    begin
-  	      DbCTreeElt.dbput h c;
-	      Hashtbl.remove cs.invreq (i,h);
-	      let cei = int_of_msgtype CTreeElement in
-	      let cci = int_of_msgtype CompleteCTree in
-	      try
-		Hashtbl.find cs.itemhooks (cei,h) ();
-		Hashtbl.remove cs.itemhooks (cei,h);
-		Hashtbl.remove cs.itemhooks (cci,h)
-	      with Not_found -> ()
-	    end
-          else (*** otherwise, it seems to be a misbehaving peer --  ignore for now ***)
-	    Utils.log_string (Printf.sprintf "misbehaving peer? [malformed CTreeElement]\n")
-	else (*** if something unrequested was sent, then seems to be a misbehaving peer ***)
-	  Utils.log_string (Printf.sprintf "misbehaving peer? [unrequested CTreeElement]\n"));;
+      let (_,_) = sei_hashval seis (ms,String.length ms,None,0,0) in
+      let _ = int_of_msgtype GetCTreeElement in (** ignore **)
+      ());; (** no longer sending/receiving CTreeElements **)
 
 Hashtbl.add msgtype_handler CompleteHList
     (fun (sin,sout,cs,ms) ->
@@ -2854,7 +2844,7 @@ let rec completely_expand_ctre c n =
       let (nhl2,n2) = completely_expand_nehlist nhl n in
       (CLeaf(bl,nhl2),n2)
   | CHash(h) ->
-      let c2 = DbCTreeElt.dbget h in
+      let c2 = expand_ctree_atom_or_element false h in
       completely_expand_ctre c2 n
   | CLeft(c0) ->
       let (c02,n2) = completely_expand_ctre c0 n in
@@ -2867,97 +2857,10 @@ let rec completely_expand_ctre c n =
       let (c12,n3) = completely_expand_ctre c1 n2 in
       (CBin(c02,c12),n3);;
 
-let send_elements_below_hconselt tm cs h =
-  try
-    let hl = completely_expand_hconselt h in
-    let i = int_of_msgtype CompleteHList in
-    if not (recently_sent (i,h) tm cs.sentinv) then (*** don't resend ***)
-      let hsb = Buffer.create 100 in
-      seosbf (seo_hlist seosb hl (seo_hashval seosb h (hsb,None)));
-      let hser = Buffer.contents hsb in
-      ignore (queue_msg cs CompleteHList hser);
-      Hashtbl.replace cs.sentinv (i,h) tm
-  with Not_found ->
-    try
-      let i = int_of_msgtype GetHConsElement in
-      let hk = DbHConsElt.dbget h in
-      if not (recently_sent (i,h) tm cs.sentinv) then (*** don't resend ***)
-	begin
-	  let hksb = Buffer.create 100 in
-	  seosbf (seo_prod seo_hashval (seo_option (seo_prod seo_hashval seo_int8)) seosb hk (seo_hashval seosb h (hksb,None)));
-	  let hkser = Buffer.contents hksb in
-	  ignore (queue_msg cs HConsElement hkser);
-	  Hashtbl.replace cs.sentinv (i,h) tm
-	end;
-      match hk with
-      | (ah,r) ->
-	  let i = int_of_msgtype GetAsset in
-	  if not (recently_sent (i,ah) tm cs.sentinv) then (*** don't resend ***)
-	    begin
-	      try
-		let a = DbAsset.dbget ah in
-		let asb = Buffer.create 100 in
-		seosbf (seo_asset seosb a (seo_hashval seosb ah (asb,None)));
-		let aser = Buffer.contents asb in
-		ignore (queue_msg cs Asset aser);
-		Hashtbl.replace cs.sentinv (i,ah) tm
-	      with Not_found -> ();
-	    end;
-	  match r with
-	  | None -> ()
-	  | Some(hr,l) ->
-	      if DbHConsElt.dbexists hr then
-		let tosend = ref [(int_of_msgtype HConsElement,hr)] in
-		collect_hcons_inv_nbhd 1 hr tosend;
-		send_inv_to_one !tosend cs
-    with Not_found -> ();;
-
-let send_elements_below_ctreeelt tm cs h =
-  try
-    let c = DbCTreeElt.dbget h in
-    try
-      let (c2,_) = completely_expand_ctre c 3000 in (*** if we get to the point that the full ctree has <= 3000 assets, just send the whole ctree ***)
-      let i = int_of_msgtype CompleteCTree in
-      if not (recently_sent (i,h) tm cs.sentinv) then (*** don't resend ***)
-	let csb = Buffer.create 100 in
-	seosbf (seo_ctree seosb c2 (seo_hashval seosb h (csb,None)));
-	let cser = Buffer.contents csb in
-	ignore (queue_msg cs CompleteCTree cser);
-	Hashtbl.replace cs.sentinv (i,h) tm
-    with Not_found ->
-      begin
-	let tosend = ref [] in
-	collect_ctree_inv_nbhd c tosend;
-	if not (!tosend = []) then send_inv_to_one !tosend cs;
-	let i = int_of_msgtype GetCTreeElement in
-	if not (recently_sent (i,h) tm cs.sentinv) then (*** don't resend ***)
-	  begin
-	    let csb = Buffer.create 100 in
-	    seosbf (seo_ctree seosb c (seo_hashval seosb h (csb,None)));
-	    let cser = Buffer.contents csb in
-	    ignore (queue_msg cs CTreeElement cser);
-	    Hashtbl.replace cs.sentinv (i,h) tm;
-	  end;
-      end
-  with Not_found -> ();;
-
-let rec send_elements_below_ctree tm cs c =
-  match c with
-  | CHash(h) -> send_elements_below_ctreeelt tm cs h
-  | CLeaf(_,NehHash(h,_)) -> send_elements_below_hconselt tm cs h
-  | CLeaf(_,_) -> () (*** should not happen ***)
-  | CLeft(c0) -> send_elements_below_ctree tm cs c0
-  | CRight(c1) -> send_elements_below_ctree tm cs c1
-  | CBin(c0,c1) -> send_elements_below_ctree tm cs c0; send_elements_below_ctree tm cs c1
-;;
-
 Hashtbl.add msgtype_handler GetElementsBelow
 (fun (sin,sout,cs,ms) ->
-  let ((j,h),_) = sei_prod sei_int8 sei_hashval seis (ms,String.length ms,None,0,0) in
-  if j = int_of_msgtype CTreeElement then
-    send_elements_below_ctreeelt (Unix.time()) cs h
-  else if j = int_of_msgtype HConsElement then
-    send_elements_below_hconselt (Unix.time()) cs h);;
+  let (_,_) = sei_prod sei_int8 sei_hashval seis (ms,String.length ms,None,0,0) in
+  ());; (** no longer used **)
 
 let hashctree c =
   let s = Buffer.create 1000 in
@@ -3271,6 +3174,7 @@ let export_ctree_subtop_subsubtop c h p1 p2 =
 exception MissingAsset of hashval * bool list
 exception MissingHConsElt of hashval * bool list
 exception MissingCTreeElt of hashval * bool list
+exception MissingCTreeAtm of hashval * bool list
 
 let rec verifyhcons (aid,k) pl =
   if not (DbAsset.dbexists aid) then raise (MissingAsset(aid,pl));
@@ -3298,7 +3202,11 @@ let rec verifyledger c pl =
       verifyledger c1 (true::pl)
 and verifyledger_h h pl =
   try
-    let c = DbCTreeElt.dbget h in
+    let c = DbCTreeAtm.dbget h in
     verifyledger c pl
   with Not_found ->
-    raise (MissingCTreeElt(h,pl))
+    try
+      let c = DbCTreeLeaf.dbget h in
+      verifyledger c pl
+    with Not_found ->
+      raise (MissingCTreeAtm(h,pl))

@@ -643,7 +643,8 @@ let stakingthread () =
 			          raise StakingProblemPause;
 			        end;
 			      let (prevcforheader,cgr) = factor_inputs_ctree_cgraft [(alpha2,aid)] prevcforblock in
-			      let newcr = save_ctree_elements !dync in
+                              (* let newcr = save_ctree_atoms !dync in *) (* wait until after block is published to save atoms *)
+                              let newcr = ctree_hashroot !dync in
                               (*		log_string (Printf.sprintf "finished saving ctree elements of dync\n"); *)
                               (*		    Hashtbl.add recentledgerroots newcr (blkh,newcr); *)
 			      dyntht := txout_update_ottree !othersout !dyntht;
@@ -1102,7 +1103,8 @@ let stakingthread () =
 			          raise StakingProblemPause;
 			        end;
 			      let (prevcforheader,cgr) = factor_inputs_ctree_cgraft [(alpha2,aid)] prevcforblock in
-			      let newcr = save_ctree_elements !dync in
+			      (* let newcr = save_ctree_atoms !dync in *) (* wait until after block is published to save atoms *)
+                              let newcr = ctree_hashroot !dync in
                               (*		log_string (Printf.sprintf "finished saving ctree elements of dync\n"); *)
                               (*		    Hashtbl.add recentledgerroots newcr (blkh,newcr); *)
 			      dyntht := txout_update_ottree !othersout !dyntht;
@@ -1473,7 +1475,8 @@ let stakingthread () =
 			           raise StakingProblemPause;
 			         end;
 			       let (prevcforheader,cgr) = factor_inputs_ctree_cgraft [(alpha2,aid)] prevcforblock in
-			       let newcr = save_ctree_elements !dync in
+			       (* let newcr = save_ctree_atoms !dync in *) (* wait until after block is published to save atoms *)
+                               let newcr = ctree_hashroot !dync in
                                (*		log_string (Printf.sprintf "finished saving ctree elements of dync\n"); *)
                                (*		    Hashtbl.add recentledgerroots newcr (blkh,newcr); *)
 			       dyntht := txout_update_ottree !othersout !dyntht;

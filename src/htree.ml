@@ -3,6 +3,7 @@
 (* Distributed under the MIT software license, see the accompanying
    file COPYING or http://www.opensource.org/licenses/mit-license.php. *)
 
+open Ser
 open Hash
 
 type 'a htree =
@@ -50,3 +51,24 @@ let rec ohtree_hashroot f n oht =
     | Some(HLeaf(x)) -> f x
     | _ -> None
 
+let rec seo_htree s o tr c =
+  match tr with
+  | HLeaf(m) ->
+     let c = o 1 0 c in
+     let c = s o m c in
+     c
+  | HBin(l,r) ->
+     let c = o 1 1 c in
+     let c = seo_option (seo_htree s) o l c in
+     let c = seo_option (seo_htree s) o r c in
+     c
+
+let rec sei_htree s i c =
+  let (b,c) = i 1 c in
+  if b = 0 then
+    let (m,c) = s i c in
+    (HLeaf(m),c)
+  else
+    let (l,c) = sei_option (sei_htree s) i c in
+    let (r,c) = sei_option (sei_htree s) i c in
+    (HBin(l,r),c)

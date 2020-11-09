@@ -215,7 +215,7 @@ let save_wallet () =
   let bkpwallfn = Filename.concat bkpwalldir (Printf.sprintf "walletbkp%Ld" currtm) in
   let wallfn = Filename.concat (datadir()) "wallet" in
   if Sys.file_exists wallfn then Sys.rename wallfn bkpwallfn;
-  let s = open_out_bin wallfn in
+  let s = open_out_gen [Open_creat;Open_append;Open_wronly;Open_binary] 0o600 wallfn in
   try
     List.iter
       (fun (k,b,_,_,_,_) ->
@@ -366,35 +366,9 @@ let filter_wallet lr =
 
 let append_wallet f =
   let wallfn = Filename.concat (datadir()) "wallet" in
-  let s = open_out_gen [Open_creat;Open_append;Open_wronly;Open_binary] 0o660 wallfn in
+  let s = open_out_gen [Open_creat;Open_append;Open_wronly;Open_binary] 0o600 wallfn in
   f s;
   close_out s
-
-let addnode remip remport =
-  false
-(***
-let addnode remip remport =
-  match !socks with
-  | None -> (*** no proxy ***)
-      begin
-	try
-	  let (r,ri,ro) = connectpeer remip remport in
-	  true
-	with _ ->
-	  false
-      end
-  | Some(s) when s = 4 -> (*** socks4 ***)
-      begin
-	try
-	  let (r,ri,ro) = connectpeer_socks4 !socksport remip remport in
-	  true
-	with _ -> false
-      end
-  | Some(s) when s = 5 -> (*** socks5, not yet implemented ***)
-      false
-  | _ -> (*** unknown ***)
-      false
-***)
 
 let privkey_in_wallet_p alpha =
   let (p,x4,x3,x2,x1,x0) = alpha in
@@ -1027,33 +1001,37 @@ let get_spendable_assets_in_ledger oc ledgerroot blkhght =
 	  end
       with Exit -> ()
     in
+    let havekey : (payaddr,unit) Hashtbl.t = Hashtbl.create 100 in
     List.iter
       (fun (k,b,(x,y),w,h,z) ->
+        Hashtbl.add havekey (p2pkhaddr_payaddr h) ();
 	handler (fun () -> let alpha = p2pkhaddr_addr h in al1 := (alpha,z,Ctre.ctree_addr true true alpha ctr None)::!al1))
       !walletkeys_staking;
     List.iter
       (fun (k,b,(x,y),w,h,z) ->
+        Hashtbl.add havekey (p2pkhaddr_payaddr h) ();
 	handler (fun () -> let alpha = p2pkhaddr_addr h in al1 := (alpha,z,Ctre.ctree_addr true true alpha ctr None)::!al1))
       !walletkeys_nonstaking;
-      let spendable = ref [] in
-      let sumcurr2 alpha a =
-	match a with
-	| (_,_,Some(_,lh,_),_) when lh > blkhght -> ()
-	| (_,_,_,Currency(_)) ->
-	    let v = match asset_value blkhght a with None -> 0L | Some(v) -> v in
-	    spendable := (alpha,a,v)::!spendable
-	| (_,_,_,_) ->
-	    spendable := (alpha,a,0L)::!spendable
-      in
-      List.iter
-	(fun (alpha,z,x) ->
-	  match x with
-	  | (Some(hl),_) ->
-	      Ctre.iter_hlist_gen blkhght (Ctre.nehlist_hlist hl) (sumcurr2 alpha)
-	  | (None,_) -> ())
-	!al1;
-      Hashtbl.add spendable_assets_in_ledger ledgerroot !spendable;
-      !spendable
+    let spendable = ref [] in
+    let sumcurr2 alpha a =
+      match a with
+      | (_,_,Some(beta,lh,_),_) when not (Hashtbl.mem havekey beta)  || lh > blkhght -> ()
+      | (_,_,Some(_,lh,_),_) when lh > blkhght -> ()
+      | (_,_,_,Currency(_)) ->
+	 let v = match asset_value blkhght a with None -> 0L | Some(v) -> v in
+	 spendable := (alpha,a,v)::!spendable
+      | (_,_,_,_) ->
+	 spendable := (alpha,a,0L)::!spendable
+    in
+    List.iter
+      (fun (alpha,z,x) ->
+	match x with
+	| (Some(hl),_) ->
+	   Ctre.iter_hlist_gen blkhght (Ctre.nehlist_hlist hl) (sumcurr2 alpha)
+	| (None,_) -> ())
+      !al1;
+    Hashtbl.add spendable_assets_in_ledger ledgerroot !spendable;
+    !spendable
 
 let get_atoms_balances_in_ledger oc ledgerroot blkhght =
   try
@@ -1209,9 +1187,16 @@ let printctreeelt oc h =
   with Not_found ->
     Printf.fprintf oc "No ctree elt %s found\n" (hashval_hexstring h)
 
+let printctreeatm oc h =
+  try
+    let c = DbCTreeAtm.dbget h in
+    print_ctree oc c
+  with Not_found ->
+    Printf.fprintf oc "No ctree elt %s found\n" (hashval_hexstring h)
+
 let printctreeinfo oc h =
   try
-    let c = DbCTreeElt.dbget h in
+    let c = expand_ctree_atom_or_element false h in
     let v = ref 0L in
     let b = ref 0L in
     let e = ref 1 in
@@ -1254,7 +1239,7 @@ let printctreeinfo oc h =
 	  begin
 	    try
 	      incr e;
-	      ctreeeltinfo (DbCTreeElt.dbget h)
+	      ctreeeltinfo (expand_ctree_atom_or_element false h)
 	    with Not_found -> incr ch
 	  end
       | CLeaf(_,NehHash(h,_)) ->
@@ -2438,7 +2423,7 @@ let query_at_block q pbh ledgerroot blkh =
 	end;
 	begin
 	  try
-	    let e = Ctre.DbCTreeElt.dbget h in
+	    let e = expand_ctree_atom_or_element false h in
 	    let j = JsonObj([("type",JsonStr("ctreeelt"));("ctree",json_ctree(e))]) in
 	    dbentries := j::!dbentries
 	  with Not_found -> ()
@@ -2814,23 +2799,12 @@ let report_subtop_subsubtop oc pl =
 
 let verifyfullledger oc h =
   try
-    let c = DbCTreeElt.dbget h in
-    let cnt = ref 0 in
+    let c = expand_ctree_atom_or_element false h in
     let cl = ctree_tagged_hashes c [] [h] [] in
-    let ncl = List.length cl in
-    let perc = ref 0 in
     let rec verify_tagged_hashes thl =
       match thl with
       | [] -> ()
       | (i,pl,_,h)::thr ->
-	  incr cnt;
-	  let p = (!cnt * 100) / ncl in
-	  if p > !perc then
-	    begin
-	      Printf.fprintf oc "%d%% through the traversal.\n" p;
-	      flush oc;
-	      perc := p;
-	    end;
 	  if i = 0 then
 	    verifyledger_h h pl
 	  else
@@ -2873,6 +2847,13 @@ let verifyfullledger oc h =
 	  report_subtop_subsubtop oc pl;
 	  flush oc
 	end
+    | MissingCTreeAtm(h,pl) ->
+	begin
+	  Printf.fprintf oc "Ledger is not complete. CTreeAtm %s is missing.\n" (hashval_hexstring h);
+	  let pl = List.rev pl in
+	  report_subtop_subsubtop oc pl;
+	  flush oc
+	end
   with Not_found ->
     Printf.fprintf oc "Do not have the root of ledger %s\n" (hashval_hexstring h);
     flush oc
@@ -2911,7 +2892,7 @@ let rec requestfullctree_subtop cnt thl =
   | (i,pl,par,h)::thr when i = 0 ->
       begin
 	try
-	  let c = DbCTreeElt.dbget h in
+	  let c = expand_ctree_atom_or_element false h in
 	  let thl2 = ctree_tagged_hashes c pl (h::par) [] in
 	  requestfullctree_subsubtop cnt thr thl2
 	with Not_found -> (** should not happen **)
@@ -3016,7 +2997,7 @@ let rec requestfullctree_top oc h c =
   let thl = ctree_tagged_hashes c [] [h] [] in
   let mhl = List.filter
       (fun (i,_,_,h) ->
-	(i = 0 && not (DbCTreeElt.dbexists h))
+	(i = 0 && not (DbCTreeElt.dbexists h || DbCTreeAtm.dbexists h))
       || (i = 1 && not (DbHConsElt.dbexists h)))
       thl
   in
@@ -3068,7 +3049,7 @@ let rec requestfullctree_top oc h c =
 				try
 				  ignore (List.find
 					    (fun (i,pl,par,h) ->
-					      (i = 0 && not (DbCTreeElt.dbexists h)) || (i = 1 && not (DbHConsElt.dbexists h)))
+					      (i = 0 && not (DbCTreeElt.dbexists h || DbCTreeElt.dbexists h)) || (i = 1 && not (DbHConsElt.dbexists h)))
 					    mhl) (** if a subtop elt is still missing, then do nothing here; the last one to come will trigger calling top again **)
 				with Not_found -> (** should have all the subtop elts now, so call top again **)
 				  requestfullctree_top !Utils.log htop ctop);
@@ -3113,7 +3094,7 @@ let requestfullledger oc h =
   else
     begin
       try
-	let c = DbCTreeElt.dbget h in
+	let c = expand_ctree_atom_or_element false h in
 	requestfullctree_top oc h c
       with Not_found ->
 	let tm = Unix.time() in
@@ -3128,7 +3109,7 @@ let requestfullledger oc h =
 		    Hashtbl.replace cs.itemhooks (cei,h)
 		      (fun () ->
 			try
-			  let c = DbCTreeElt.dbget h in
+			  let c = expand_ctree_atom_or_element false h in
 			  requestfullctree_top !Utils.log h c
 			with Not_found -> Utils.log_string "WARNING: Got ctree element, but hook did not find it in database afterwards.");
 		    let msb = Buffer.create 20 in
@@ -3278,15 +3259,17 @@ let dumpstate fa =
   dumpblocktreestate sa;
   close_out sa
 
-let ctre_left c =
+let rec ctre_left c =
   match c with
+  | CHash(h) -> ctre_left (get_ctree_atom_or_element h)
   | CBin(cl,_) -> cl
   | CLeft(cl) -> cl
   | CLeaf(false::bl,hl) -> CLeaf(bl,hl)
   | _ -> raise Not_found
 
-let ctre_right c =
+let rec ctre_right c =
   match c with
+  | CHash(h) -> ctre_right (get_ctree_atom_or_element h)
   | CBin(_,cr) -> cr
   | CRight(cr) -> cr
   | CLeaf(true::bl,hl) -> CLeaf(bl,hl)
@@ -3368,7 +3351,7 @@ let rec report_a oc g c bl =
   | CHash(h) ->
       begin
 	try
-	  let c2 = notfound_warning_wrap oc h "ledger element" (fun () -> get_ctree_element h) in
+	  let c2 = notfound_warning_wrap oc h "ledger element" (fun () -> get_ctree_atom_or_element h) in
 	  report_a oc g c2 bl
 	with Not_found -> ()
       end
@@ -3386,9 +3369,9 @@ let reportowned oc f lr =
 	| (aid,bday,obl,OwnsNegProp) ->
 	    Printf.fprintf f "NegProp %s %Ld %s %s\n" (hashval_hexstring aid) bday (addr_pfgaddrstr (bitseq_addr (true::false::bl))) (match obl with Some(beta,lk,_) -> Printf.sprintf "%s %Ld" (addr_pfgaddrstr (payaddr_addr beta)) lk | None -> "None")
 	| _ -> ())
-      (ctre_left (ctre_right (get_ctree_element lr))) []
+      (ctre_left (ctre_right (get_ctree_atom_or_element lr))) []
   with Not_found ->
-    Printf.fprintf oc "There appeat to be no owned objects or propositions in the ledger.\n"
+    Printf.fprintf oc "There appear to be no owned objects or propositions in the ledger.\n"
 
 let reportbounties oc f lr =
   try
@@ -3409,7 +3392,7 @@ let reportbounties oc f lr =
 	    let alpha = bitseq_addr (true::false::bl) in
 	    Hashtbl.add ownednegproph alpha a
 	| _ -> ())
-      (ctre_left (ctre_right (get_ctree_element lr))) [];
+      (ctre_left (ctre_right (get_ctree_atom_or_element lr))) [];
     Hashtbl.iter
       (fun alpha a ->
 	match a with
@@ -3455,7 +3438,7 @@ let collectable_bounties oc lr =
 	    let alpha = bitseq_addr (true::false::bl) in
 	    Hashtbl.add ownednegproph alpha a
 	| _ -> ())
-      (ctre_left (ctre_right (get_ctree_element lr))) [];
+      (ctre_left (ctre_right (get_ctree_atom_or_element lr))) [];
     let cbl = ref [] in
     Hashtbl.iter
       (fun alpha a ->
@@ -3535,7 +3518,7 @@ let reportpubs oc f lr =
 		(List.rev d)
 	    end
 	| _ -> ())
-      (ctre_right (ctre_right (get_ctree_element lr))) []
+      (ctre_right (ctre_right (get_ctree_atom_or_element lr))) []
   with Not_found ->
     Printf.fprintf oc "There are no publications in the ledger.\n"
 

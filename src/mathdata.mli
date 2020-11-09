@@ -160,4 +160,3 @@ val trm_from_json : jsonval -> trm
 val theoryspec_from_json : jsonval -> theoryspec
 val signaspec_from_json : jsonval -> signaspec
 val doc_from_json : jsonval -> doc
-

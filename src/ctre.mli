@@ -73,6 +73,42 @@ module DbHConsEltAt :
       val dbdelete : Hash.hashval -> unit
     end
 
+module DbCTreeLeaf :
+    sig
+      val dbinit : unit -> unit
+      val dbget : Hash.hashval -> ctree
+      val dbexists : Hash.hashval -> bool
+      val dbput : Hash.hashval -> ctree -> unit
+      val dbdelete : Hash.hashval -> unit
+    end
+
+module DbCTreeLeafAt :
+    sig
+      val dbinit : unit -> unit
+      val dbget : Hash.hashval -> bool list
+      val dbexists : Hash.hashval -> bool
+      val dbput : Hash.hashval -> bool list -> unit
+      val dbdelete : Hash.hashval -> unit
+    end
+
+module DbCTreeAtm :
+    sig
+      val dbinit : unit -> unit
+      val dbget : Hash.hashval -> ctree
+      val dbexists : Hash.hashval -> bool
+      val dbput : Hash.hashval -> ctree -> unit
+      val dbdelete : Hash.hashval -> unit
+    end
+
+module DbCTreeAtmAt :
+    sig
+      val dbinit : unit -> unit
+      val dbget : Hash.hashval -> bool list
+      val dbexists : Hash.hashval -> bool
+      val dbput : Hash.hashval -> bool list -> unit
+      val dbdelete : Hash.hashval -> unit
+    end
+
 module DbCTreeElt :
     sig
       val dbinit : unit -> unit
@@ -90,7 +126,10 @@ module DbCTreeEltAt :
       val dbput : Hash.hashval -> bool list -> unit
       val dbdelete : Hash.hashval -> unit
     end
-
+      
+val save_ctree_atoms_a : ctree -> bool list -> hashval
+val save_ctree_atoms : ctree -> hashval
+val ctree_expand_leaves : ctree -> ctree
 val save_ctree_elements : ctree -> hashval
 val save_ctree : string -> ctree -> unit
 val load_ctree : string -> ctree
@@ -98,6 +137,8 @@ val get_hcons_element : hashval -> hashval * (hashval * int) option
 val get_hlist_element : hashval -> hlist
 val get_nehlist_element : hashval -> nehlist
 val get_ctree_element : hashval -> ctree
+val get_ctree_atom_or_element : hashval -> ctree
+val expand_ctree_atom_or_element : bool -> hashval -> ctree
 val ctree_addr : bool -> bool -> addr -> ctree -> int option -> nehlist option * int
 val ctree_addr_cache : (hashval,nehlist option * int) Hashtbl.t -> bool -> bool -> addr -> ctree -> int option -> nehlist option * int
 
@@ -151,10 +192,6 @@ val hashctree : ctree -> hashval
 val json_ctree : ctree -> jsonval
 val ctree_from_json : jsonval -> ctree
 
-val collect_hcons_inv_nbhd : int -> hashval -> (int * hashval) list ref -> unit
-val collect_hlist_inv_nbhd : hlist -> (int * hashval) list ref -> unit
-val collect_ctree_inv_nbhd : ctree -> (int * hashval) list ref -> unit
-
 val import_ctree_subelts : in_channel -> hashval -> int * int
 val export_ctree_subelts : out_channel -> hashval -> bool list -> unit
 val export_ctree_subtop : out_channel -> hashval -> int -> unit
@@ -163,6 +200,7 @@ val export_ctree_subtop_subsubtop : out_channel -> hashval -> int -> int -> unit
 exception MissingAsset of hashval * bool list
 exception MissingHConsElt of hashval * bool list
 exception MissingCTreeElt of hashval * bool list
+exception MissingCTreeAtm of hashval * bool list
                                                                               
 val verifyhlist_h : hashval -> bool list -> unit
 val verifyledger_h : hashval -> bool list -> unit

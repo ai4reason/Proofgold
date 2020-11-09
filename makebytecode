@@ -68,4 +68,4 @@ ocamlc -I bin -I +threads -o bin/proofgoldcli.cmo -c src/proofgoldcli.ml
 ocamlc -I bin -I +threads -I +zarith -o bin/proofgoldclibc unix.cma threads.cma zarith.cma zarithint.cmo json.cmo config.cmo version.cmo utils.cmo ser.cmo hashaux.cmo sha256.cmo ripemd160.cmo hash.cmo htree.cmo db.cmo net.cmo secp256k1.cmo cryptocurr.cmo signat.cmo ltcrpc.cmo script.cmo logic.cmo mathdata.cmo checking.cmo assets.cmo tx.cmo ctre.cmo ctregraft.cmo block.cmo blocktree.cmo setconfig.cmo commands.cmo inputdraft.cmo staking.cmo proofgoldcli.cmo
 cd bin
 ln -s proofgoldbc proofgold
-ln -s proofgoldbccli proofgold-cli
+ln -s proofgoldclibc proofgoldcli
